@@ -12,14 +12,14 @@ u32  __bitmap_alloc(u32 *bitmap,unsigned long start,int len)
     lim = (len >= BIT_PER_U32 ? BIT_PER_U32:len);
     
     b = bitmap[k] & (~0UL <<(BITS_PER_U32 - s1))
-    if((pos = find_first_zero_bit(b,lim)) != lim) 
+    if((pos = find_first_zero_bit(&b,lim)) != lim) 
         return BITS_PER_U32 - pos + k * BITS_PER_U32;
     
     lim = (start + len) / BITS_PER_U32;
     
     for(k=k+1;k < lim;k ++) 
     {
-        if((pos = find_first_zero(b,BITS_PER_U32)) != BITS_PER_U32)
+        if((pos = find_first_zero(&b,BITS_PER_U32)) != BITS_PER_U32)
             return pos;
     }
     
@@ -27,7 +27,7 @@ u32  __bitmap_alloc(u32 *bitmap,unsigned long start,int len)
     if(!s2) return 0;
     
     b = bitmap[k] & (~0UL >> (BITS_PER_U32 - s2));
-    if((pos = find_first_zero_bit(b,BITS_PER_U32)) != BITS_PER_U32) 
+    if((pos = find_first_zero_bit(&b,BITS_PER_U32)) != BITS_PER_U32) 
         return (k+1) * BITS_PER_U32 - s2;
     
     return 0;

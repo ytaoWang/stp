@@ -38,11 +38,30 @@ static inline void bitmap_fill(const u32 *bitmap,int bits)
 }
 
 
-static inline u32 bitmap_alloc(u32 *bitmap,unsigned long start,int len)
+static inline u32 bitmap_find_first_zero_bit(u32 *bitmap,unsigned long start,int len)
 {
     return __bitmap_alloc(bitmap,start,len);
 }
+
+static inline void bitmap_set(u32 *bitmap,unsigned long off)
+{
+    int k;
     
+    k = off / BITS_PER_U32;
+    off = off % BITS_PER_U32;
+    
+    set_bit((BITS_PER_U32 - k),&bitmap[off]);
+}
+
+static inline void bitmap_clear(u32 *bitmap,unsigned long off)    
+{
+    int k;
+    
+    k = off / BITS_PER_U32;
+    off = off % BITS_PER_U32;
+    
+    clear_bit((BITS_PER_U32 - k),&bitmap[off]);
+}
     
 
 #ifdef __cplusplus
