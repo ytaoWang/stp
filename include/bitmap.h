@@ -1,6 +1,10 @@
 #ifndef __BITMAP_H__
 #define __BITMAP_H__
 
+#include "stp_types.h"
+#include "bitops.h"
+#include <string.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -8,6 +12,28 @@ extern "C" {
  * bitmap operations for bltmap-allocation
  *
  */
+
+static inline int bitmap_clean(u32 *bitmap,unsigned long bits)
+{
+
+    int k,lim = bits/BITS_PER_U32;
+    
+    for(k = 0;k < lim;k++)
+        bitmap[k] &= 0UL;
+
+    #ifdef DEBUG
+    #endif 
+
+    bitmap[k] &= BITMAP_LAST_WORD_ZERO(bits);
+    
+
+    #ifdef DEBUG
+    printf("bitmap[0]:%lx\n",bitmap[0]);
+    #endif
+}
+    
+    
+
 
 static inline int bitmap_empty(const u32 *bitmap,int bits) 
 {
@@ -25,11 +51,11 @@ static inline int bitmap_empty(const u32 *bitmap,int bits)
 }
 
     
-static inline void bitmap_fill(const u32 *bitmap,int bits)
+static inline void bitmap_fill(u32 *bitmap,int bits)
 {
     u32 nlongs = BITS_TO_U32(bits);
     
-    if(longs > 1) {
+    if(nlongs > 1) {
         int len = (nlongs - 1) * sizeof(u32);
         memset(bitmap,0xff,len);
     }
@@ -50,7 +76,10 @@ static inline void bitmap_set(u32 *bitmap,unsigned long off)
     k = off / BITS_PER_U32;
     off = off % BITS_PER_U32;
     
-    set_bit((BITS_PER_U32 - k),&bitmap[off]);
+    set_bit((BITS_PER_U32 - off -1 ),&bitmap[k]);
+    #ifdef DEBUG
+    printf("bitmap[%d]:%lx,off:%ld\n",k,bitmap[k],off);
+    #endif
 }
 
 static inline void bitmap_clear(u32 *bitmap,unsigned long off)    

@@ -14,13 +14,19 @@ typedef int64_t s64;
 
 typedef unsigned long ptr_t;
 
-#define BITS_PER_U32 sizeof(u32)*8
+#define BITS_PER_U32 (sizeof(u32)*8)
 
 #define BITMAP_LAST_WORD_MASK(nbits)            \
   (                                             \
-   ((nbits % BITS_PER_LONG)) ?                  \
-   (1UL << (nbits % BITS_PER_LONG)) -1 : ~0UL   \
+   ((nbits % BITS_PER_U32)) ?                  \
+   (1UL << (nbits % BITS_PER_U32)) -1 : ~0UL   \
   )
+
+#define BITMAP_LAST_WORD_ZERO(nbits)            \
+    (                                           \
+     ((nbits % BITS_PER_U32))?                      \
+     (~0UL >> (nbits % BITS_PER_U32)):0UL           \
+                                                )
 
 #define BITS_PER_BYTE 8
 
