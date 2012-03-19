@@ -1,0 +1,38 @@
+#ifndef __STP_ERROR_H__
+#define __STP_ERROR_H__
+
+#define STP_NO_ERROR  0
+#define STP_INDEX_OPEN_ERROR  1
+#define STP_META_OPEN_ERROR   2	
+#define STP_INDEX_READ_ERROR  3
+#define STP_META_READ_ERROR   4
+#define STP_INDEX_WRITE_ERROR  5
+#define STP_META_WRITE_ERROR   6
+#define STP_BAD_MAGIC_NUMBER   7
+#define STP_META_CANT_BE_WRITER     8
+#define STP_INDEX_CANT_BE_WRITER    9
+#define STP_INDEX_CANT_BE_READER     10
+#define STP_META_CANT_BE_READER      11
+#define STP_INDEX_READER_CANT_STORE  12
+#define STP_META_READER_CANT_STORE   13
+#define STP_INDEX_READER_CANT_DELETE 14
+#define STP_META_READER_CANT_DELETE 15
+#define STP_INDEX_READER_CANT_COMPACTION  16
+#define STP_META_READER_CANT_COMPACTION   17
+#define STP_INDEX_READER_CANT_UPDATE   18
+#define STP_META_READER_CANT_UPDATE  19
+#define STP_INDEX_ITEM_NO_FOUND      20
+#define STP_META_ITEM_NO_FOUND       21
+#define STP_INDEX_ILLEAGAL_DATA      22
+#define STP_META_ILLEAGAL_DATA        23
+#define STP_INDEX_NO_SPACE          24
+#define STP_META_NO_SPACE           25    
+#define STP_MALLOC_ERROR           26
+
+#define STP_MIN_ERRNO             0
+#define STP_MAX_ERRNO             26
+
+#define N_(s)  (s)
+#define _(s)  ((const char *)s)
+
+#endif
