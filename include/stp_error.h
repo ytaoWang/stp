@@ -28,9 +28,11 @@
 #define STP_INDEX_NO_SPACE          24
 #define STP_META_NO_SPACE           25    
 #define STP_MALLOC_ERROR           26
+#define STP_INDEX_CREAT_ERROR      27
+#define STP_META_CREAT_ERROR       28
 
 #define STP_MIN_ERRNO             0
-#define STP_MAX_ERRNO             26
+#define STP_MAX_ERRNO             28
 
 #define N_(s)  (s)
 #define _(s)  ((const char *)s)

@@ -57,6 +57,7 @@ struct stp_inode_item {
  * meta file super block
  *
  */
+#define FS_SUPER_SIZE  (4*1024)
 struct stp_fs_super {
     u32 magic;
     u32 flags;
@@ -101,8 +102,11 @@ struct stp_fs_operations {
     struct stp_inode * (*read)(struct stp_fs_info *,off_t offset);
     int (*sync)(struct stp_fs_info *);
     int (*write)(struct stp_fs_info *,struct stp_inode *);
-};  
+};
 
+extern const struct stp_fs_operations stp_super_operations;
+
+/* 4KB metadata*/
 struct stp_fs_info {
     const char *filename;
     int fd;
@@ -187,6 +191,7 @@ struct stp_btree_super {
     struct stp_bnode_item root;
 } __attribute__((__packed__));
 
+#define BTREE_MAX_NODE (BITMAP_ENTRY * 32)
     
 struct stp_btree_info;
     
@@ -220,10 +225,10 @@ typedef struct {
     struct stp_btree_info *tree;
 }STP_FILE_INFO;
 
-#define STP_FS_READ  0
-#define STP_FS_WRITE 1
-#define STP_FS_RDWR  2
-#define STP_FS_CREAT 3
+#define STP_FS_READ  (1<<0)
+#define STP_FS_WRITE (1<<1)
+#define STP_FS_RDWR  (1<<2)
+#define STP_FS_CREAT (1<<3)
 
 typedef unsigned int stp_error;
 

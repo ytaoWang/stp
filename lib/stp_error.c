@@ -1,5 +1,5 @@
-#include "stp_file.h"
-
+#include "stp_fs.h"
+#include "stp.h"
 #include "stp_error.h"
 
 stp_error stp_errno = STP_NO_ERROR;
@@ -31,6 +31,8 @@ const char * const stp_errlist[STP_MAX_ERRNO + 1] = {
     N_("Meta file illeagal data"),/*STP_META_ILLEAGAL_DATA*/
     N_("Index file has no enough space"),/*STP_INDEX_NO_SPACE */
     N_("Malloc memory error"),/*STP_MALLOC_SERROR*/
+    N_("Create index file error"),/*STP_INDEX_CREAT_ERROR*/
+    N_("Create metadata file error"),/*STP_META_CREAT_ERROR*/
     };
 
     

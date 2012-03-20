@@ -1,0 +1,17 @@
+General Information
+======================
+
+STP (SubTree Partition) is a simple interface for metadata storage. It aims to provide a mechanism for storing metadata like BigTable or HFile.
+
+Dependencies
+======================
+
+Linux Kernel version 2.5.X where X >= 37
+
+Installation
+======================
+
+./configure
+make
+
+For more details see the file 'INSTALL'

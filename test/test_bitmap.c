@@ -1,5 +1,6 @@
 #include "bitmap.h"
 #include "stp_types.h"
+#include "stp.h"
 
 #include <stdio.h>
 #include <sys/types.h>
@@ -7,7 +8,7 @@
 #define N 10
 #define BITS (N * BITS_PER_U32)
 
-int main(int argc,char *argv[]) 
+int main_testbitmap(int argc,char *argv[]) 
 {
     u32 b[N];
     int i;
@@ -33,6 +34,18 @@ int main(int argc,char *argv[])
         i++;
     }
     
-    
+    printf("sizeof node:%d\n",sizeof(struct stp_bnode_item));
+    return 0;
+}
+
+int main(int argc,char *argv[]) 
+{
+    STP_FILE file;
+    if(!(file = stp_open("stp.fs","stp.index",STP_FS_RDWR|STP_FS_CREAT)))
+    {
+        printf("open stp error:%s\n",stp_strerror(stp_errno));
+        return -1;
+    }
+    stp_close(file);
     return 0;
 }
