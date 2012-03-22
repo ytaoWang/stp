@@ -33,6 +33,10 @@ const char * const stp_errlist[STP_MAX_ERRNO + 1] = {
     N_("Malloc memory error"),/*STP_MALLOC_SERROR*/
     N_("Create index file error"),/*STP_INDEX_CREAT_ERROR*/
     N_("Create metadata file error"),/*STP_META_CREAT_ERROR*/
+    N_("Fail to check index file"),/*STP_INDEX_FILE_CHECK_ERROR*/
+    N_("Fail to check metadata file"),/*STP_META_FILE_CHECK_ERROR*/
+    N_("Fail to allocate inode"),/*STP_INODE_MALLOC_ERROR*/
+    N_("Fail to allocate bnode"),/*STP_BNODE_MALLOC_ERROR*/
     };
 
     

@@ -14,6 +14,34 @@
 static int read_fs_info(int ffd,struct stp_fs_info **,unsigned int mode);
 static int read_btree_info(int bfd,struct stp_btree_info **,unsigned int mode);
 
+static int stp_check(const struct stp_fs_info *fs,const struct stp_btree_info *btree)
+{
+    if(fs->super->magic != btree->super->magic )
+    {
+        stp_errno = STP_BAD_MAGIC_NUMBER;
+        return -1;
+    }
+    
+    struct stat stbuf;
+    
+    //check meta file size
+    if(fstat(fs->fd,&stbuf) < 0 || \
+       fs->super->total_bytes != stbuf.st_size) {
+        stp_errno = STP_META_FILE_CHECK_ERROR;
+        return -1;
+    }
+    
+    //check index file size
+    if(fstat(btree->fd,&stbuf) < 0 || \
+       btree->super->total_bytes != stbuf.st_size) {
+        stp_error = STP_INDEX_FILE_CHECK_ERROR;
+        return -1;
+    }
+
+    return 0;
+}
+
+
 STP_FILE stp_open(const char *ffile,const char *bfile,unsigned int mode)
 {
     int ffd,bfd;
@@ -67,6 +95,9 @@ STP_FILE stp_open(const char *ffile,const char *bfile,unsigned int mode)
 
     pfile->tree = tree;
     pfile->tree->filename = bfile;    
+
+    if(stp_check(pfile->fs,pfile->tree)) 
+        return NULL;
 
     return pfile;
 }

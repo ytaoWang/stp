@@ -7,6 +7,7 @@ extern "C" {
 
 #include "list.h"
 #include "stp_types.h"
+#include "rb_tree.h"
 
 #include <pthread.h>
 #include <semaphore.h>
@@ -33,7 +34,7 @@ struct stp_dir_item {
 }__attribute__((__packed__));
 
 /*
- * inode item in disk
+ * inode item in disk 128 byte
  * 
  */
 struct stp_inode_item {
@@ -50,7 +51,8 @@ struct stp_inode_item {
     u64 mtime;
     u64 otime;
     u64 transid;
-    u32 nritem;//file-item number dir_item
+    u32 nritem;//file-item number dir_item 
+    u8 padding[35];
 } __attribute__((__packed__));
 
 /*
@@ -65,6 +67,7 @@ struct stp_fs_super {
     u64 total_bytes;
     u64 bytes_used;
     u64 bytes_hole;
+    u64 ino;
     u32 nritems;//number item
     u32 nrdelete;//delete item number
     struct stp_inode_item root;
@@ -78,30 +81,40 @@ struct stp_fs_super {
 struct stp_inode;
     
 struct stp_inode_operations {
+    int (*init)(struct stp_inode *);
     int (*setattr)(struct stp_inode *);
     int (*mkdir)(struct stp_inode *);
     int (*rm)(struct stp_inode *,u64 ino);
     int (*create)(struct stp_inode *,u64 ino);
+    int (*readdir)(struct stp_inode *);
 };
+
+#define STP_FS_INODE_CREAT  (1<<0)
 
 struct stp_inode {
     u8 flags;
-    u8 ref;
+    u32 ref;
+    struct rb_node node;//for search
     struct list lru;
     struct list dirty;
+    struct list list;
     struct stp_fs_info *fs;
-    struct stp_inode_item item;
+    struct stp_inode_item *item;
     struct stp_inode_operations *ops;
 };
+
+extern const struct stp_inode_operations inode_operations;
 
 struct stp_fs_info;
     
 struct stp_fs_operations {
     int (*init)(struct stp_fs_info *);
-    struct stp_inode* (*allocate)(struct stp_fs_info *);
+    struct stp_inode* (*allocate)(struct stp_fs_info *,off_t);
+    int (*alloc_page)(struct stp_inode *,off_t);
     int (*free)(struct stp_fs_info *,struct stp_inode *);
-    struct stp_inode * (*read)(struct stp_fs_info *,off_t offset);
+    int (*read)(struct stp_fs_info *,struct stp_inode *,off_t offset);
     int (*sync)(struct stp_fs_info *);
+    int (*release_page)(struct stp_inode *);
     int (*write)(struct stp_fs_info *,struct stp_inode *);
     int (*destroy)(struct stp_fs_info *);
 };
@@ -118,6 +131,7 @@ struct stp_fs_info {
     sem_t sem;
     pthread_mutex_t mutex;
     struct stp_fs_super *super;
+    struct rb_root root;//rb root for read/search in memory
     struct list inode_list;
     struct list inode_lru;
     struct list dirty_list;
@@ -142,7 +156,7 @@ struct stp_bnode_key {
     u8 flags;
 } __attribute__((__packed__));
 
-#define BTREE_DEGREE 32      
+#define BTREE_DEGREE 46      
 #define KEY(t)  (2*(t) - 1)
 #define MIN_KEY(t)  ((t) - 1)
 #define MIN_CHILD(t)  (t)
@@ -155,6 +169,7 @@ struct stp_bnode_item {
     struct stp_bnode_off ptrs[CHILD(BTREE_DEGREE)];
     u32 nrptrs;
     u32 level;
+    u8 padding[46];
 }__attribute__((__packed__));
 
 
@@ -178,8 +193,9 @@ struct stp_bnode {
     u8 ref;
     struct list lru;
     struct list dirty;
+    struct list list;
     struct stp_btree_info *tree;
-    struct stp_bnode_item item;
+    struct stp_bnode_item *item;
     struct stp_bnode_operations *ops;
 };
     
@@ -210,6 +226,7 @@ struct stp_btree_info;
 
 struct stp_btree_operations {
     int (*init)(struct stp_btree_info *);
+    struct stp_bnode* (*allocate)(struct stp_btree_info *,off_t offset);
     int (*read)(struct stp_btree_info *,off_t offset);
     int (*sync)(struct stp_btree_info *);
     int (*write)(struct stp_btree_info *,struct stp_bnode *);

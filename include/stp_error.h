@@ -30,9 +30,13 @@
 #define STP_MALLOC_ERROR           26
 #define STP_INDEX_CREAT_ERROR      27
 #define STP_META_CREAT_ERROR       28
+#define STP_INDEX_FILE_CHECK_ERROR  29
+#define STP_META_FILE_CHECK_ERROR  30
+#define STP_INODE_MALLOC_ERROR     31
+#define STP_BNODE_MALLOC_ERROR     32
 
 #define STP_MIN_ERRNO             0
-#define STP_MAX_ERRNO             28
+#define STP_MAX_ERRNO             32
 
 #define N_(s)  (s)
 #define _(s)  ((const char *)s)

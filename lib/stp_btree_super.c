@@ -7,7 +7,8 @@
 #include "list.h"
 #include "bitmap.h"
 
-static umem_cache_t *btree_bnode_slab = NULL;
+static umem_cache_t *btree_bnode_slab = NULL; //size:32
+static umem_cache_t *btree_bnode_item_slab = NULL; //size:2048
 
 static int do_btree_super_init(struct stp_btree_info * super)
 {
@@ -40,14 +41,25 @@ static int do_btree_super_init(struct stp_btree_info * super)
     
     if((btree_bnode_slab = umem_cache_create("stp_bnode_slab",sizeof(struct stp_bnode),\
                                              ALIGN4,SLAB_NOSLEEP,NULL,NULL)) == NULL)
+        goto fail;
+    
+    if((btree_bnode_item_slab = umem_cache_create("stp_bnode_item_slab",sizeof(struct stp_bnode_item),\
+                                                  ALIGN4,SLAB_NOSLEEP,NULL,NULL)) == NULL) {
+        umem_cache_destroy(btree_bnode_item_slab);
+        goto fail;
+    }
+    
+    
+    printf("stp_bnode size:%u,stp_bnode_item size:%u\n",sizeof(struct stp_bnode),sizeof(struct stp_bnode_item));
+
+    return 0;
+ fail:
     {
         stp_errno = STP_MALLOC_ERROR;
         sem_destroy(&super->sem);
         pthread_mutex_destroy(&super->mutex);
         return -1;
     }
-    
-    return 0;
 }
 
 static int do_btree_super_read(struct stp_btree_info *super,off_t offset)
@@ -88,6 +100,7 @@ static int do_btree_super_destroy(struct stp_btree_info *super)
 
     /*destroy cache*/
     umem_cache_destroy(btree_bnode_slab);
+    umem_cache_destroy(btree_bnode_item_slab);
     sem_destroy(&super->sem);
     pthread_mutex_destroy(&super->mutex);
     
