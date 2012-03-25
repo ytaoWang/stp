@@ -71,7 +71,8 @@ libstp_a_AR = $(AR) $(ARFLAGS)
 libstp_a_LIBADD =
 am_libstp_a_OBJECTS = bitmap.$(OBJEXT) slab.$(OBJEXT) \
 	stp_error.$(OBJEXT) stp_fs_super.$(OBJEXT) stp_open.$(OBJEXT) \
-	stp_btree_super.$(OBJEXT)
+	stp_btree_super.$(OBJEXT) stp_btree_bnode.$(OBJEXT) \
+	stp_fs_inode.$(OBJEXT) rb_tree.$(OBJEXT)
 libstp_a_OBJECTS = $(am_libstp_a_OBJECTS)
 DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)
 depcomp =
@@ -170,13 +171,16 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 lib_LIBRARIES = libstp.a
-AM_CFLAGS = -I$(top_srcdir)/include
+AM_CFLAGS = -I$(top_srcdir)/include -D_GNU_SOURCE
 libstp_a_SOURCES = bitmap.c	\
 	slab.c			\
 	stp_error.c		\
 	stp_fs_super.c		\
 	stp_open.c		\
-	stp_btree_super.c	
+	stp_btree_super.c	\
+	stp_btree_bnode.c	\
+	stp_fs_inode.c		\
+	rb_tree.c
 
 all: all-am
 

@@ -46,6 +46,7 @@ int main(int argc,char *argv[])
         printf("open stp error:%s\n",stp_strerror(stp_errno));
         return -1;
     }
+    
     stp_close(file);
     return 0;
 }

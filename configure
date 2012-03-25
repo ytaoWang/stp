@@ -3850,6 +3850,31 @@ else
   as_fn_error "pthread library not found!" "$LINENO" 5
 fi
 
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking __sync_fetch_and_add" >&5
+$as_echo_n "checking __sync_fetch_and_add... " >&6; }
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+ int main(void) { return __sync_fetch_and_add((int *)0,0);}
+
+int
+main ()
+{
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+$as_echo "yes" >&6; }
+else
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
 # Checks for header files.
 ac_ext=c
 ac_cpp='$CPP $CPPFLAGS'

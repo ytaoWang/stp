@@ -25,19 +25,22 @@ static int stp_check(const struct stp_fs_info *fs,const struct stp_btree_info *b
     struct stat stbuf;
     
     //check meta file size
-    if(fstat(fs->fd,&stbuf) < 0 || \
-       fs->super->total_bytes != stbuf.st_size) {
+    if((fstat(fs->fd,&stbuf) < 0) ||                \
+       (fs->super->total_bytes != stbuf.st_size)) {
+        fprintf(stderr,"total_bytes:%llu,size:%llu\n",fs->super->total_bytes,stbuf.st_size);
         stp_errno = STP_META_FILE_CHECK_ERROR;
         return -1;
     }
     
     //check index file size
-    if(fstat(btree->fd,&stbuf) < 0 || \
-       btree->super->total_bytes != stbuf.st_size) {
-        stp_error = STP_INDEX_FILE_CHECK_ERROR;
+    
+    if((fstat(btree->fd,&stbuf) < 0) ||                 \
+       (btree->super->total_bytes != stbuf.st_size)) {
+        fprintf(stderr,"btree total_bytes:%llu,size:%llu\n",btree->super->total_bytes,stbuf.st_size);
+        stp_errno = STP_INDEX_FILE_CHECK_ERROR;
         return -1;
     }
-
+    
     return 0;
 }
 
@@ -58,7 +61,7 @@ STP_FILE stp_open(const char *ffile,const char *bfile,unsigned int mode)
         mode |= STP_FS_RDWR;
     }
     
-    if((ffd = open(ffile,O_APPEND|m,S_IRWXU|S_IRGRP|S_IROTH)) < 0) {
+    if((ffd = open(ffile,m,S_IRWXU|S_IRGRP|S_IROTH)) < 0) {
         stp_errno = STP_META_OPEN_ERROR;
         return NULL;
     }

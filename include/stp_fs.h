@@ -83,13 +83,16 @@ struct stp_inode;
 struct stp_inode_operations {
     int (*init)(struct stp_inode *);
     int (*setattr)(struct stp_inode *);
-    int (*mkdir)(struct stp_inode *);
+    int (*mkdir)(struct stp_inode *,const char *,size_t,u64);
     int (*rm)(struct stp_inode *,u64 ino);
     int (*create)(struct stp_inode *,u64 ino);
     int (*readdir)(struct stp_inode *);
+    int (*destroy)(struct stp_inode *);
 };
 
 #define STP_FS_INODE_CREAT  (1<<0)
+#define STP_FS_INODE_DIRTY  (1<<1)
+#define STP_FS_INODE_DIRTY_MM (1<<2)
 
 struct stp_inode {
     u8 flags;
@@ -100,7 +103,7 @@ struct stp_inode {
     struct list list;
     struct stp_fs_info *fs;
     struct stp_inode_item *item;
-    struct stp_inode_operations *ops;
+    const struct stp_inode_operations *ops;
 };
 
 extern const struct stp_inode_operations inode_operations;
@@ -127,6 +130,7 @@ struct stp_fs_info {
     int fd;
     u8 mode;
     u32 magic;
+    u32 active;
     u64 transid;
     sem_t sem;
     pthread_mutex_t mutex;
@@ -134,6 +138,7 @@ struct stp_fs_info {
     struct rb_root root;//rb root for read/search in memory
     struct list inode_list;
     struct list inode_lru;
+    //    struct list inode_mm;//inode from mmap
     struct list dirty_list;
     const struct stp_fs_operations *ops;//inode read/write/sync operations
 };
@@ -176,17 +181,16 @@ struct stp_bnode_item {
 struct stp_bnode;
     
 struct stp_bnode_operations {
-    /*
-     * arg:point to super
-     */
-    int (*init)(struct stp_bnode * node,void *arg);
+    int (*init)(struct stp_bnode * node);
     int (*insert)(struct stp_bnode * node,u64 ino,size_t start,off_t offset);
     int (*update)(struct stp_bnode * node,u64 ino,size_t start,off_t offset);
     int (*delete)(struct stp_bnode * node,u64 ino);
-    struct stp_bnode * (*search)(u64 ino);
+    struct stp_bnode * (*search)(struct stp_bnode *node,u64 ino);
+    int (*destroy)(struct stp_bnode * node);
 };
     
-        
+#define STP_INDEX_BNODE_CREAT (1<<0)
+#define STP_INDEX_BNODE_DIRTY (1<<1)        
 
 struct stp_bnode {
     u8 flags;
@@ -196,10 +200,11 @@ struct stp_bnode {
     struct list list;
     struct stp_btree_info *tree;
     struct stp_bnode_item *item;
-    struct stp_bnode_operations *ops;
+    const struct stp_bnode_operations *ops;
 };
+
+extern const struct stp_bnode_operations bnode_operations;
     
-        
 
 /*
  * btree index file layout:
@@ -207,6 +212,7 @@ struct stp_bnode {
  */
 #define BTREE_SUPER_SIZE (3*1024)
 #define BITMAP_ENTRY  (512)
+#define BITMAP_SIZE  (BITMAP_ENTRY * sizeof(u32) * 8)
 
 struct stp_btree_super {
     u32 magic;
@@ -227,7 +233,7 @@ struct stp_btree_info;
 struct stp_btree_operations {
     int (*init)(struct stp_btree_info *);
     struct stp_bnode* (*allocate)(struct stp_btree_info *,off_t offset);
-    int (*read)(struct stp_btree_info *,off_t offset);
+    int (*read)(struct stp_btree_info *,struct stp_bnode *,off_t offset);
     int (*sync)(struct stp_btree_info *);
     int (*write)(struct stp_btree_info *,struct stp_bnode *);
     struct stp_bnode * (*search)(struct stp_btree_info *,u64 ino);
@@ -245,6 +251,7 @@ struct stp_btree_info {
     u8 mode;
     u64 transid;
     sem_t sem;
+    u32 active;//item in memory
     pthread_mutex_t mutex;
     struct stp_btree_super *super;
     struct list node_list;

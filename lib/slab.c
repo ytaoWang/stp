@@ -273,9 +273,9 @@ static void * __alloc_node(umem_cache_t *cachep,struct list *slabs_list) {
   
   n = slab->slab_list.next;
   
-  #ifndef DEBUG
+  #ifdef DEBUG
 
-  fprintf(stderr,"DEBUG:n:%p(__alloc_ndoe)\n",n);
+  fprintf(stderr,"DEBUG:n:%p(__alloc_node)\n",n);
   
   #endif
  
@@ -298,8 +298,12 @@ static void * __alloc_node(umem_cache_t *cachep,struct list *slabs_list) {
     #endif
   }
   
+  #ifdef DEBUG
+
   fprintf(stderr,"DEBUG:before alloc_node,mem:%p\n",n);
   
+  #endif
+
   return (void *)n;
   
 }
@@ -329,7 +333,11 @@ void *umem_cache_alloc(umem_cache_t *cachep) {
   if(!list_empty(&cachep->slabs_free)) {
     list_move(&cachep->slabs_partial,cachep->slabs_free.next);
     mem = __alloc_node(cachep,cachep->slabs_partial.next);
+    
+	#ifdef DEBUG
     fprintf(stderr,"DEBUG:mem:%p(umem_alloc) in slabs_free\n",mem);
+    #endif
+
   }
   
  _last:
