@@ -20,7 +20,7 @@ static int do_fs_inode_init(struct stp_inode *inode)
 {
     struct stp_fs_info *fs = inode->fs;
     
-    inode->item->location.start = 0;
+    inode->item->location.count = 0;
     inode->item->location.offset = 0;
     inode->item->location.flags = 0;
     inode->item->location.nritems = 0;

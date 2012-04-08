@@ -50,10 +50,11 @@ STP_FILE stp_open(const char *ffile,const char *bfile,unsigned int mode)
     int ffd,bfd;
     mode_t m = O_RDWR;
     struct stat stf,stb;
+    unsigned int flags = 0;
     
     mode &= ~STP_FS_CREAT;
 
-    if((stat(ffile,&stf) < 0) || (stat(bfile,&stb) < 0))
+    if((stat(ffile,&stf) < 0) || (stat(bfile,&stb) < 0)) 
         mode |= STP_FS_CREAT;
 
     if(mode & STP_FS_CREAT) {   
@@ -97,11 +98,11 @@ STP_FILE stp_open(const char *ffile,const char *bfile,unsigned int mode)
     }
 
     pfile->tree = tree;
-    pfile->tree->filename = bfile;    
-
-    if(stp_check(pfile->fs,pfile->tree)) 
+    pfile->tree->filename = bfile;
+    
+    if(stp_check(pfile->fs,pfile->tree))
         return NULL;
-
+    
     return pfile;
 }
 
@@ -129,6 +130,10 @@ static int read_fs_info(int ffd,struct stp_fs_info ** _fs,unsigned int mode)
         free(fs);
         return -1;
     }
+
+    if(mode & STP_FS_CREAT)
+        memset(addr,0,FS_SUPER_SIZE);
+    
     fs->super = (struct stp_fs_super *)addr;
     fs->mode = mode;
     fs->fd = ffd;
@@ -161,13 +166,16 @@ static int read_btree_info(int bfd,struct stp_btree_info ** _btree,unsigned int 
         return -1;
     }
     
-    
     if((addr = mmap(NULL,BTREE_SUPER_SIZE,PROT_READ|PROT_WRITE,\
         MAP_SHARED|MAP_LOCKED,bfd,0)) == MAP_FAILED) {
         stp_errno = STP_MALLOC_ERROR;
         free(btree);
         return -1;
     }
+
+    if(mode & STP_FS_CREAT)
+        memset(addr,0,BTREE_SUPER_SIZE);
+
     btree->super = (struct stp_btree_super *)addr;
     btree->mode = mode;
     btree->fd = bfd;

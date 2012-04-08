@@ -16,8 +16,8 @@ extern "C" {
  * every object(meta_item or btree_item) has a header to indicate where the node is.
  */
 struct stp_header {
-    u64 start;
     u64 offset;
+    u64 count;
     u8 flags;
     u32 nritems;
 }__attribute__((__packed__));
@@ -25,12 +25,12 @@ struct stp_header {
 /*
  * directory item in directory
  */
-#define DIR_LEN 128
+#define DIR_LEN 127
 
 struct stp_dir_item {
     u64 ino;
     u32 name_len;
-    char name[DIR_LEN];
+    char name[DIR_LEN + 1];
 }__attribute__((__packed__));
 
 /*
@@ -97,6 +97,7 @@ struct stp_inode_operations {
 struct stp_inode {
     u8 flags;
     u32 ref;
+    pthread_mutex_t lock;
     struct rb_node node;//for search
     struct list lru;
     struct list dirty;
@@ -128,7 +129,7 @@ extern const struct stp_fs_operations stp_super_operations;
 struct stp_fs_info {
     const char *filename;
     int fd;
-    u8 mode;
+    u32 mode;
     u32 magic;
     u32 active;
     u64 transid;
@@ -155,26 +156,41 @@ struct stp_bnode_off {
     u64 len;
     u64 offset;
 } __attribute__((__packed__));
+
+#define BTREE_KEY_DELETE  (1<<0)
+
     
 struct stp_bnode_key {
     u64 ino;
     u8 flags;
 } __attribute__((__packed__));
 
-#define BTREE_DEGREE 46      
+#define BTREE_DEGREE 59      
+#define MAX ((u32)-1)
+
 #define KEY(t)  (2*(t) - 1)
 #define MIN_KEY(t)  ((t) - 1)
 #define MIN_CHILD(t)  (t)
-#define CHILD(t) (t)
+#define CHILD(t) (2*(t))
 
-struct stp_bnode_item {
+
+#define BTREE_CHILD_MAX (CHILD(BTREE_DEGREE))
+#define BTREE_CHILD_MIN (MIN_CHILD(BTREE_DEGREE))
+#define BTREE_KEY_MIN (MIN_KEY(BTREE_DEGREE))
+#define BTREE_KEY_MAX (KEY(BTREE_DEGREE))
+
+#define BTREE_ITEM_HOLE (1<<0)
+#define BTREE_ITEM_LEAF (1<<1)
+
+struct stp_bnode_item {  //4096 bytes
     struct stp_header location;
     struct stp_bnode_key key[KEY(BTREE_DEGREE)];
     u32 nrkeys;
     struct stp_bnode_off ptrs[CHILD(BTREE_DEGREE)];
     u32 nrptrs;
     u32 level;
-    u8 padding[46];
+    u8 flags;
+    u8 padding[52];
 }__attribute__((__packed__));
 
 
@@ -195,9 +211,11 @@ struct stp_bnode_operations {
 struct stp_bnode {
     u8 flags;
     u8 ref;
+    pthread_mutex_t lock;
     struct list lru;
     struct list dirty;
     struct list list;
+    struct stp_bnode *ptrs[CHILD(BTREE_DEGREE)];
     struct stp_btree_info *tree;
     struct stp_bnode_item *item;
     const struct stp_bnode_operations *ops;
@@ -236,7 +254,7 @@ struct stp_btree_operations {
     int (*read)(struct stp_btree_info *,struct stp_bnode *,off_t offset);
     int (*sync)(struct stp_btree_info *);
     int (*write)(struct stp_btree_info *,struct stp_bnode *);
-    struct stp_bnode * (*search)(struct stp_btree_info *,u64 ino);
+    struct stp_bnode ** (*search)(struct stp_btree_info *,u64 ino);
     int (*insert)(struct stp_btree_info *,u64 ino,size_t size,off_t offset);
     int (*rm)(struct stp_btree_info *,u64 ino);
     int (*destroy)(struct stp_btree_info *);
@@ -254,6 +272,7 @@ struct stp_btree_info {
     u32 active;//item in memory
     pthread_mutex_t mutex;
     struct stp_btree_super *super;
+    struct stp_bnode *root;
     struct list node_list;
     struct list node_lru;
     struct list dirty_list;
