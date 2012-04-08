@@ -1,0 +1,29 @@
+#include <sys/mman.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <string.h>
+
+
+struct foo {
+  int i;
+  int j;
+};
+
+struct bar {
+  int i;
+  struct foo f;
+  int j;
+}
+
+
+int main(int argc,char *argv[])
+{
+    void * addr;
+    if((addr = mmap(NULL,4*1024,PROT_READ|PROT_WRITE,MAP_SHARED|MAP_LOCKED,ffd,0)) == MAP_FAILED) {
+      	fprintf(stderr,"mmap error:%s\n",strerror(errno));
+      	return -1;	
+    }
+    
+  	return 0;
+}
