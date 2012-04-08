@@ -46,7 +46,11 @@ int main(int argc,char *argv[])
         printf("open stp error:%s\n",stp_strerror(stp_errno));
         return -1;
     }
+    if(stp_creat(file,"test1") < 0) {
+        printf("creat file test1 error:%s\n",stp_strerror(stp_errno));
+    }
     
+                                      
     stp_close(file);
     return 0;
 }

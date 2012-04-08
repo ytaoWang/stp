@@ -190,7 +190,7 @@ struct stp_bnode_item {  //4096 bytes
     u32 nrptrs;
     u32 level;
     u8 flags;
-    u8 padding[52];
+    u8 padding[59];
 }__attribute__((__packed__));
 
 
@@ -216,6 +216,7 @@ struct stp_bnode {
     struct list dirty;
     struct list list;
     struct stp_bnode *ptrs[CHILD(BTREE_DEGREE)];
+  	struct stp_bnode *parent;
     struct stp_btree_info *tree;
     struct stp_bnode_item *item;
     const struct stp_bnode_operations *ops;
@@ -228,7 +229,7 @@ extern const struct stp_bnode_operations bnode_operations;
  * btree index file layout:
  * superinfo:4KB--4KB--4KB btree-node
  */
-#define BTREE_SUPER_SIZE (3*1024)
+#define BTREE_SUPER_SIZE (sizeof(struct stp_bnode_item) + 1024)
 #define BITMAP_ENTRY  (512)
 #define BITMAP_SIZE  (BITMAP_ENTRY * sizeof(u32) * 8)
 
@@ -242,8 +243,7 @@ struct stp_btree_super {
 } __attribute__((__packed__));
 
 #define BTREE_MAX_NODE (BITMAP_ENTRY * 32)
-#define BTREE_TOTAL_SIZE (BTREE_MAX_NODE*(sizeof(struct stp_bnode_item))\
-                          + BTREE_SUPER_SIZE)   
+#define BTREE_TOTAL_SIZE (BTREE_MAX_NODE*(sizeof(struct stp_bnode_item)) + BTREE_SUPER_SIZE)   
 
 struct stp_btree_info;
     
@@ -254,7 +254,9 @@ struct stp_btree_operations {
     int (*read)(struct stp_btree_info *,struct stp_bnode *,off_t offset);
     int (*sync)(struct stp_btree_info *);
     int (*write)(struct stp_btree_info *,struct stp_bnode *);
-    struct stp_bnode ** (*search)(struct stp_btree_info *,u64 ino);
+  	// ino must be unique
+    struct stp_bnode * (*search)(struct stp_btree_info *,u64 ino);
+  	void (*debug)(const struct stp_bnode *);
     int (*insert)(struct stp_btree_info *,u64 ino,size_t size,off_t offset);
     int (*rm)(struct stp_btree_info *,u64 ino);
     int (*destroy)(struct stp_btree_info *);

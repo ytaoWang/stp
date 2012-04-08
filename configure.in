@@ -7,6 +7,7 @@ AC_CONFIG_SRCDIR([include/bitmap.h])
 AC_CONFIG_HEADERS([config.h])
 AM_INIT_AUTOMAKE([no-dependencies])
 # Checks for programs.
+:${CFLAGS="-g -O0"}
 AC_PROG_CC
 AC_PROG_RANLIB
 AM_PROG_CC_C_O

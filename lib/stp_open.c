@@ -54,9 +54,11 @@ STP_FILE stp_open(const char *ffile,const char *bfile,unsigned int mode)
     
     mode &= ~STP_FS_CREAT;
 
-    if((stat(ffile,&stf) < 0) || (stat(bfile,&stb) < 0)) 
+    if((stat(ffile,&stf) < 0) || (stat(bfile,&stb) < 0)) {
         mode |= STP_FS_CREAT;
-
+        fprintf(stderr,"[WARNING] can't find the index or fs file.\n");
+    }
+    
     if(mode & STP_FS_CREAT) {   
         m |= O_CREAT;
         mode |= STP_FS_RDWR;
@@ -177,6 +179,11 @@ static int read_btree_info(int bfd,struct stp_btree_info ** _btree,unsigned int 
         memset(addr,0,BTREE_SUPER_SIZE);
 
     btree->super = (struct stp_btree_super *)addr;
+    if(!(mode & STP_FS_CREAT))
+    	printf("%s:btree->super:%p,addr:%p,flags:%d\n",__FUNCTION__,btree->super,addr,btree->super->root.flags);
+    else
+      	printf("%s:btree->super:%p,addr:%p,root:%p,flags:%p\n",__FUNCTION__,btree->super,addr,&btree->super->root,&btree->super->root.flags);
+
     btree->mode = mode;
     btree->fd = bfd;
     
@@ -199,16 +206,44 @@ int stp_close(STP_FILE pfile)
     struct stp_btree_info *btree = pfile->tree;
     
     fs->ops->destroy(fs);
-    munmap(&fs->super,FS_SUPER_SIZE);
+    fsync(fs->fd);
+    munmap(fs->super,FS_SUPER_SIZE);
     close(fs->fd);
     free(fs);
     
     btree->ops->destroy(btree);
-    munmap(&btree->super,BTREE_SUPER_SIZE);
+    printf("__function__:%s,flags:%d,nrkeys:%d\n",__FUNCTION__,btree->super->root.flags,btree->super->root.nrkeys);
+    fsync(btree->fd);
+    msync(btree->super,BTREE_SUPER_SIZE,MS_SYNC);
+    munmap(btree->super,BTREE_SUPER_SIZE);
     close(btree->fd);
     free(btree);
     
     free(pfile);
     
     return 0;
+}
+
+/**
+  * create a file.
+  */
+int stp_creat(STP_FILE file,const char *filename)
+{
+  struct stp_fs_info *fs;
+  struct stp_btree_info *tree;
+  
+  if(!file) {
+      stp_errno = STP_INVALID_ARGUMENT;
+      return -1;
+  }
+
+  fs = file->fs;
+  tree = file->tree;
+  
+  if(!(tree->mode & STP_FS_RDWR)) {
+      stp_errno =  STP_INDEX_CANT_BE_WRITER;
+      return -1;
+  }
+  return 0;
+  //return tree->ops->insert(tree,1,100,20);
 }

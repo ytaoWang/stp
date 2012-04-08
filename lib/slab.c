@@ -96,7 +96,7 @@ static int ucache_exist(const char *name)
 static int release_one_page(umem_cache_t *cachep,struct slab *slab) 
 {
   void *mem;
-  
+  int flags;
   
   #ifdef DEBUG
   
@@ -110,7 +110,9 @@ static int release_one_page(umem_cache_t *cachep,struct slab *slab)
   list_del_element(&slab->list);
   cachep->nrfree -= cachep->nrsize;
 
-  mem = (void *)slab + sizeof(struct slab) - cachep->pagesize;
+  //mem = (void *)slab + sizeof(struct slab) - cachep->pagesize;
+  mem = (void *)((ptr_t)slab & cachep->pagesize);
+  //  printf("%s,mem:%x\n",__FUNCTION__,mem);
   
   #ifdef DEBUG
 
@@ -119,7 +121,11 @@ static int release_one_page(umem_cache_t *cachep,struct slab *slab)
   // getchar();
   #endif
 
-  return munmap(mem,cachep->pagesize);
+  if((flags = munmap(mem,cachep->pagesize)) < 0) {
+    fprintf(stderr,"%s:munmap error:%s\n",__FUNCTION__,strerror(errno));
+  }
+
+  return flags;
 }
 
 static struct slab * get_slab(void *mem,unsigned int);
@@ -144,6 +150,7 @@ static int get_one_page(umem_cache_t *cachep,struct list *freelist)
     fprintf(stderr,"FAIL TO GET ONE PAGE:%s\n",strerror(errno));
     return -1;
   }
+  //  printf("%s,mem:%x\n",__FUNCTION__,mem);
   
   //carved up into servel piece
   nrsize = cachep->nrsize;

@@ -37,6 +37,7 @@ const char * const stp_errlist[STP_MAX_ERRNO + 1] = {
     N_("Fail to check metadata file"),/*STP_META_FILE_CHECK_ERROR*/
     N_("Fail to allocate inode"),/*STP_INODE_MALLOC_ERROR*/
     N_("Fail to allocate bnode"),/*STP_BNODE_MALLOC_ERROR*/
+    N_("Invalid argument."),/*STP_INVALID_ARGUMENT*/
     };
 
     

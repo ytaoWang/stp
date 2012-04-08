@@ -242,7 +242,7 @@ const char * stp_strerror(stp_error error);
 STP_FILE stp_open(const char *filename,int mode);
 
 int stp_close(STP_FILE file);
-    
+  
 
 #ifdef __cplusplus
 }
