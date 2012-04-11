@@ -25,18 +25,16 @@ static int stp_check(const struct stp_fs_info *fs,const struct stp_btree_info *b
     struct stat stbuf;
     
     //check meta file size
-    if((fstat(fs->fd,&stbuf) < 0) ||                \
-       (fs->super->total_bytes != stbuf.st_size)) {
-        fprintf(stderr,"total_bytes:%llu,size:%llu\n",fs->super->total_bytes,stbuf.st_size);
+    if((fstat(fs->fd,&stbuf) < 0) || (fs->super->total_bytes != stbuf.st_size)) {
+        fprintf(stderr,"total_bytes:%llu,size:%lu\n",fs->super->total_bytes,stbuf.st_size);
         stp_errno = STP_META_FILE_CHECK_ERROR;
         return -1;
     }
     
     //check index file size
     
-    if((fstat(btree->fd,&stbuf) < 0) ||                 \
-       (btree->super->total_bytes != stbuf.st_size)) {
-        fprintf(stderr,"btree total_bytes:%llu,size:%llu\n",btree->super->total_bytes,stbuf.st_size);
+    if((fstat(btree->fd,&stbuf) < 0)) {
+        fprintf(stderr,"btree total_bytes:%llu,size:%lu\n",btree->super->total_bytes,stbuf.st_size);
         stp_errno = STP_INDEX_FILE_CHECK_ERROR;
         return -1;
     }
@@ -212,7 +210,7 @@ int stp_close(STP_FILE pfile)
     free(fs);
     
     btree->ops->destroy(btree);
-    printf("__function__:%s,flags:%d,nrkeys:%d\n",__FUNCTION__,btree->super->root.flags,btree->super->root.nrkeys);
+    printf("__function__:%s,flags:%d,nrkeys:%d\n",__FUNCTION__,btree->super->root.flags,btree->super->nritems);
     fsync(btree->fd);
     msync(btree->super,BTREE_SUPER_SIZE,MS_SYNC);
     munmap(btree->super,BTREE_SUPER_SIZE);
@@ -244,6 +242,6 @@ int stp_creat(STP_FILE file,const char *filename)
       stp_errno =  STP_INDEX_CANT_BE_WRITER;
       return -1;
   }
-  return 0;
-  //return tree->ops->insert(tree,1,100,20);
+  //return 0;
+  return tree->ops->insert(tree,1,100,20);
 }

@@ -38,6 +38,7 @@ const char * const stp_errlist[STP_MAX_ERRNO + 1] = {
     N_("Fail to allocate inode"),/*STP_INODE_MALLOC_ERROR*/
     N_("Fail to allocate bnode"),/*STP_BNODE_MALLOC_ERROR*/
     N_("Invalid argument."),/*STP_INVALID_ARGUMENT*/
+    N_("FUNCTION NOT IMPLEMNTED"),/*STP_NO_SYSCALL*/
     };
 
     

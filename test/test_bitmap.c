@@ -41,16 +41,44 @@ int main_testbitmap(int argc,char *argv[])
 int main(int argc,char *argv[]) 
 {
     STP_FILE file;
+    u64 ino;
+    
     if(!(file = stp_open("stp.fs","stp.index",STP_FS_RDWR|STP_FS_CREAT)))
     {
         printf("open stp error:%s\n",stp_strerror(stp_errno));
         return -1;
     }
-    if(stp_creat(file,"test1") < 0) {
-        printf("creat file test1 error:%s\n",stp_strerror(stp_errno));
+    
+    /*
+     * test b+ tree insert 
+     **/
+    ino = 0;
+
+    //    while(ino < 100) {
+        if(stp_creat(file,"test1") < 0) {
+            printf("creat file test1 error:%s\n",stp_strerror(stp_errno));
+        }
+        ino ++;
+        //}
+    
+    ino = 2;
+    
+    /*
+     * test b+tree search
+     **/
+    if(stp_stat(file,ino,NULL) < 0) {
+        fprintf(stderr,"stat file ino:%llu,error:%s\n",ino,stp_strerror(stp_errno));
     }
     
-                                      
+    ino = 1;
+    
+    if(stp_stat(file,ino,NULL) < 0) {
+        fprintf(stderr,"stat file ino:%llu,error:%s\n",ino,stp_strerror(stp_errno));
+    }
+    
+    /*
+     * test destroy
+     */
     stp_close(file);
     return 0;
 }

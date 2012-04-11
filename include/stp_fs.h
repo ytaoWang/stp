@@ -75,7 +75,7 @@ struct stp_fs_super {
 
 /*
  *
- * may be add some operations later
+ * maybe add some operations later
  */
 
 struct stp_inode;
@@ -201,7 +201,7 @@ struct stp_bnode_operations {
     int (*insert)(struct stp_bnode * node,u64 ino,size_t start,off_t offset);
     int (*update)(struct stp_bnode * node,u64 ino,size_t start,off_t offset);
     int (*delete)(struct stp_bnode * node,u64 ino);
-    struct stp_bnode * (*search)(struct stp_bnode *node,u64 ino);
+    int (*search)(struct stp_bnode *node,u64 ino,struct stp_bnode_off *off);
     int (*destroy)(struct stp_bnode * node);
 };
     
@@ -227,19 +227,23 @@ extern const struct stp_bnode_operations bnode_operations;
 
 /*
  * btree index file layout:
- * superinfo:4KB--4KB--4KB btree-node
+ * superinfo:8KB btree-node
+ * actually the super'size is 4.5KB,but it's 8KB for mmap function
  */
-#define BTREE_SUPER_SIZE (sizeof(struct stp_bnode_item) + 1024)
+//#define BTREE_SUPER_SIZE (sizeof(struct stp_bnode_item) + 1024)
+#define BTREE_SUPER_SIZE (1024*8) 
 #define BITMAP_ENTRY  (512)
-#define BITMAP_SIZE  (BITMAP_ENTRY * sizeof(u32) * 8)
+#define BITMAP_SIZE  (BITMAP_ENTRY * sizeof(u32) * 8) //2KB
 
 struct stp_btree_super {
     u32 magic;
     u32 flags;
     u64 total_bytes;
     u32 nritems;//btree node number
+    u64 nrkeys;//btree number keys
     u32 bitmap[BITMAP_ENTRY];
-    struct stp_bnode_item root;
+    //    struct stp_bnode_item root;
+    struct stp_header root; // location of root
 } __attribute__((__packed__));
 
 #define BTREE_MAX_NODE (BITMAP_ENTRY * 32)
@@ -255,7 +259,7 @@ struct stp_btree_operations {
     int (*sync)(struct stp_btree_info *);
     int (*write)(struct stp_btree_info *,struct stp_bnode *);
   	// ino must be unique
-    struct stp_bnode * (*search)(struct stp_btree_info *,u64 ino);
+    int (*search)(struct stp_btree_info *,u64 ino,struct stp_bnode_off * );
   	void (*debug)(const struct stp_bnode *);
     int (*insert)(struct stp_btree_info *,u64 ino,size_t size,off_t offset);
     int (*rm)(struct stp_btree_info *,u64 ino);
@@ -272,6 +276,7 @@ struct stp_btree_info {
     u64 transid;
     sem_t sem;
     u32 active;//item in memory
+    u64 off;//last location in bitmap
     pthread_mutex_t mutex;
     struct stp_btree_super *super;
     struct stp_bnode *root;

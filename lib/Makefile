@@ -71,8 +71,9 @@ libstp_a_AR = $(AR) $(ARFLAGS)
 libstp_a_LIBADD =
 am_libstp_a_OBJECTS = bitmap.$(OBJEXT) slab.$(OBJEXT) \
 	stp_error.$(OBJEXT) stp_fs_super.$(OBJEXT) stp_open.$(OBJEXT) \
-	stp_btree_super.$(OBJEXT) stp_btree_bnode.$(OBJEXT) \
-	stp_fs_inode.$(OBJEXT) rb_tree.$(OBJEXT)
+	stp_rw.$(OBJEXT) stp_btree_super.$(OBJEXT) \
+	stp_btree_bnode.$(OBJEXT) stp_fs_inode.$(OBJEXT) \
+	rb_tree.$(OBJEXT)
 libstp_a_OBJECTS = $(am_libstp_a_OBJECTS)
 DEFAULT_INCLUDES = -I. -I$(top_builddir)
 depcomp =
@@ -86,11 +87,11 @@ DIST_SOURCES = $(libstp_a_SOURCES)
 ETAGS = etags
 CTAGS = ctags
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
-ACLOCAL = ${SHELL} /home/wyt/stp2/missing --run aclocal-1.11
-AMTAR = ${SHELL} /home/wyt/stp2/missing --run tar
-AUTOCONF = ${SHELL} /home/wyt/stp2/missing --run autoconf
-AUTOHEADER = ${SHELL} /home/wyt/stp2/missing --run autoheader
-AUTOMAKE = ${SHELL} /home/wyt/stp2/missing --run automake-1.11
+ACLOCAL = ${SHELL} /media/E/programming/svn/svn/私有云存储/code/trunk/client/Linux/stp2/missing --run aclocal-1.11
+AMTAR = ${SHELL} /media/E/programming/svn/svn/私有云存储/code/trunk/client/Linux/stp2/missing --run tar
+AUTOCONF = ${SHELL} /media/E/programming/svn/svn/私有云存储/code/trunk/client/Linux/stp2/missing --run autoconf
+AUTOHEADER = ${SHELL} /media/E/programming/svn/svn/私有云存储/code/trunk/client/Linux/stp2/missing --run autoheader
+AUTOMAKE = ${SHELL} /media/E/programming/svn/svn/私有云存储/code/trunk/client/Linux/stp2/missing --run automake-1.11
 AWK = gawk
 CC = gcc
 CFLAGS = -g -O0
@@ -113,7 +114,7 @@ LDFLAGS =
 LIBOBJS = 
 LIBS = -lpthread 
 LTLIBOBJS = 
-MAKEINFO = ${SHELL} /home/wyt/stp2/missing --run makeinfo
+MAKEINFO = ${SHELL} /media/E/programming/svn/svn/私有云存储/code/trunk/client/Linux/stp2/missing --run makeinfo
 MKDIR_P = /bin/mkdir -p
 OBJEXT = o
 PACKAGE = stp
@@ -129,10 +130,10 @@ SET_MAKE =
 SHELL = /bin/bash
 STRIP = 
 VERSION = 1.0
-abs_builddir = /home/wyt/stp2/lib
-abs_srcdir = /home/wyt/stp2/lib
-abs_top_builddir = /home/wyt/stp2
-abs_top_srcdir = /home/wyt/stp2
+abs_builddir = /media/E/programming/svn/svn/私有云存储/code/trunk/client/Linux/stp2/lib
+abs_srcdir = /media/E/programming/svn/svn/私有云存储/code/trunk/client/Linux/stp2/lib
+abs_top_builddir = /media/E/programming/svn/svn/私有云存储/code/trunk/client/Linux/stp2
+abs_top_srcdir = /media/E/programming/svn/svn/私有云存储/code/trunk/client/Linux/stp2
 ac_ct_CC = gcc
 am__leading_dot = .
 am__tar = ${AMTAR} chof - "$$tardir"
@@ -149,7 +150,7 @@ host_alias =
 htmldir = ${docdir}
 includedir = ${prefix}/include
 infodir = ${datarootdir}/info
-install_sh = ${SHELL} /home/wyt/stp2/install-sh
+install_sh = ${SHELL} /media/E/programming/svn/svn/私有云存储/code/trunk/client/Linux/stp2/install-sh
 libdir = ${exec_prefix}/lib
 libexecdir = ${exec_prefix}/libexec
 localedir = ${datarootdir}/locale
@@ -177,6 +178,7 @@ libstp_a_SOURCES = bitmap.c	\
 	stp_error.c		\
 	stp_fs_super.c		\
 	stp_open.c		\
+	stp_rw.c		\
 	stp_btree_super.c	\
 	stp_btree_bnode.c	\
 	stp_fs_inode.c		\

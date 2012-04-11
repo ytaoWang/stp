@@ -222,9 +222,11 @@ static int do_fs_super_read(struct stp_fs_info * sb,struct stp_inode *inode,off_
 {
     int res;
     void *addr,*s;
-    size_t size = getpagesize();
+    size_t size;
     
     assert(offset > 0);
+    
+    size = getpagesize();
     
     //may be don't use this feature,because it need more complicate algorithm when the node is decided to replace.
     //if(!(offset % getpagesize())) {
