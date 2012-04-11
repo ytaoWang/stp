@@ -75,7 +75,6 @@ static int __btree_init_root2(struct stp_btree_info *sb,const struct stp_bnode_i
     sb->root = bnode;
     bnode->flags = 0;
     bnode->ref = 0;
-    sb->ops->debug(bnode);
     list_init(&bnode->lru);
     list_init(&bnode->dirty);
     list_init(&bnode->list);
@@ -118,7 +117,7 @@ static int do_btree_super_init(struct stp_btree_info * super)
 
         super->super->total_bytes = BTREE_TOTAL_SIZE;
         //memset(&super->super->root,0,sizeof(struct stp_bnode_item));
-        printf("function:%s,flags:%d,nrkeys:%llu\n",__FUNCTION__,super->super->root.flags,super->super->root.offset);
+        //printf("function:%s,flags:%d,nrkeys:%llu\n",__FUNCTION__,super->super->root.flags,super->super->root.offset);
         //super->super->root.nrkeys = 1;
         //super->super->root.flags = BTREE_ITEM_LEAF;
         super->super->root.offset = 0;
@@ -146,7 +145,7 @@ static int do_btree_super_init(struct stp_btree_info * super)
 
     #ifndef DEBUG
     
-    printf("stp_bnode size:%u,stp_bnode_item size:%u,super size:%d\n",sizeof(struct stp_bnode),sizeof(struct stp_bnode_item),\
+    //printf("stp_bnode size:%u,stp_bnode_item size:%u,super size:%d\n",sizeof(struct stp_bnode),sizeof(struct stp_bnode_item), \
            sizeof(struct stp_btree_super));
     
     #endif
@@ -242,7 +241,7 @@ static int do_btree_super_read(struct stp_btree_info *sb,struct stp_bnode * bnod
     //read from disk
     assert(offset > 0);
     
-    printf("%s:%d,%lu\n",__FUNCTION__,__LINE__,offset);
+    //    printf("%s:%d,%lu\n",__FUNCTION__,__LINE__,offset);
     
     //mmap function offset must be multiple of pagesize
     if(!(offset % getpagesize())) {
@@ -282,6 +281,8 @@ static int do_btree_super_write(struct stp_btree_info * sb,struct stp_bnode * bn
     int res;
 
     assert(bnode->item != NULL);
+    printf("%s:%d,count:%llu,offset:%llu,ino:%llu\n",__FUNCTION__,__LINE__,bnode->item->location.count, \
+           bnode->item->location.offset,bnode->item->key[0].ino);
     assert(bnode->item->location.count > 0);
     assert(bnode->item->location.offset > 0);
     
@@ -311,8 +312,10 @@ static int __binary_search(struct stp_bnode *item,u64 ino,int *found)
         return 0;
     }
     
-    if(item->flags & BTREE_ITEM_HOLE) {
-        while((i < BTREE_KEY_MAX) && (item->item->key[i].ino < ino)) i++;
+    if(item->item->flags & BTREE_ITEM_HOLE) {
+        while((i < BTREE_KEY_MAX) && ((item->item->key[i].ino != 0) && item->item->key[i].ino < ino)) 
+            i++;
+
         //because of duplicate key,it's found at first key
         if(i > 0 && !item->ptrs[i-1] && item->item->ptrs[i-1].offset) {
             if((node = item->tree->ops->allocate(item->tree,item->item->ptrs[i-1].offset))) 
@@ -325,8 +328,9 @@ static int __binary_search(struct stp_bnode *item,u64 ino,int *found)
             --i;
             *found = 1;
         }
+ 
         if(item->item->key[i].ino == ino) *found = 1;
-        printf("%s:%d in BTREE_ITEM_HOLE\n",__FUNCTION__,__LINE__);
+        printf("%s:%d in BTREE_ITEM_HOLE(%d),offset:%d\n",__FUNCTION__,__LINE__,item->flags,i);
         
     } else {
         int l=0,h=item->item->nrkeys;
@@ -335,15 +339,17 @@ static int __binary_search(struct stp_bnode *item,u64 ino,int *found)
         {
             i = (l + h)/2;
             if(item->item->key[i].ino < ino) l = i+1;
-            else if(item->item->key[i].ino == ino) break;
+            else if((item->item->key[i].ino == ino) || (item->item->key[i].ino == 0)) break;
             else h = i-1;
         }
         //point to subtree,larger than ino also is palced right subtree
         if(item->item->key[i].ino != ino) {
-            i++;
+            if(item->item->key[i].ino != 0) i++;
             *found = 0;
         } else 
             *found = 1;
+        
+        printf("%s:%d,pos:%d,nrkey:%d\n",__FUNCTION__,__LINE__,i,item->item->nrkeys);
     }
     
     return i;
@@ -415,7 +421,8 @@ static void __move_backward(struct stp_bnode_item *item,int idx)
     i = idx;
     
     if(item->flags & BTREE_ITEM_HOLE) {
-        while(i<BTREE_KEY_MAX && !(item->key[i].flags & BTREE_KEY_DELETE)) i++;
+        while(i<BTREE_KEY_MAX && (!(item->key[i].flags & BTREE_KEY_DELETE)) && (item->key[i].ino != 0)) 
+            i++;
     } else {
         i = item->nrkeys;
     }
@@ -438,23 +445,24 @@ static int __do_btree_insert2(struct stp_btree_info *sb,struct stp_bnode_off *of
     struct stp_bnode *node;
     int i,found;
     
+    printf("%s:%d,ino:%llu,(HOLE)flag:%d\n",__FUNCTION__,__LINE__,off->ino,root->item->flags);
+    
     node = __do_btree_search(root,off->ino,&i,&found);
     
     if(!node) return -1;
-    sb->ops->debug(node);
+    //    sb->ops->debug(node);
     if(node->item->nrkeys != BTREE_KEY_MAX) {
       printf("i:%d,found:%d\n",i,found);
-      if(!found) 
-      {
-      //move backward
-        __move_backward(node->item,i);
-        node->item->nrkeys++;
+      if(!found) {
+          //move backward
+          __move_backward(node->item,i);
+          node->item->nrkeys++;
         
-        pthread_mutex_lock(&sb->mutex);
-        sb->super->nrkeys ++;
-        pthread_mutex_unlock(&sb->mutex);
+          pthread_mutex_lock(&sb->mutex);
+          sb->super->nrkeys ++;
+          pthread_mutex_unlock(&sb->mutex);
       }
-
+      
       node->item->key[i].ino = off->ino;
       node->item->key[i].flags = off->flags;
       node->item->ptrs[i].ino = off->ino;
@@ -467,12 +475,15 @@ static int __do_btree_insert2(struct stp_btree_info *sb,struct stp_bnode_off *of
       
     } else {
       //split  the node
+        stp_errno = STP_NO_SYSCALL;
+        printf("It's full,%s:%d\n",__FUNCTION__,__LINE__);
         
+        return -1;
       //__do_split(node,)
       //insert key
     }
     
-    sb->ops->debug(node);
+    //    sb->ops->debug(node);
     return 0;
 }
 

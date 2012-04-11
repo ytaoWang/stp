@@ -229,7 +229,8 @@ int stp_creat(STP_FILE file,const char *filename)
 {
   struct stp_fs_info *fs;
   struct stp_btree_info *tree;
-  
+  static u64 ino = 1;
+
   if(!file) {
       stp_errno = STP_INVALID_ARGUMENT;
       return -1;
@@ -243,5 +244,5 @@ int stp_creat(STP_FILE file,const char *filename)
       return -1;
   }
   //return 0;
-  return tree->ops->insert(tree,1,100,20);
+  return tree->ops->insert(tree,ino++,100,20);
 }
