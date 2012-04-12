@@ -348,16 +348,30 @@ static int __binary_search(struct stp_bnode *item,u64 ino,int *found)
         }
         //point to subtree,larger than ino also is palced right subtree
         if(item->item->key[i].ino != ino) {
-            if(item->item->key[i].ino != 0) i++;
+            //if(item->item->key[i].ino != 0) i++;
             *found = 0;
         } else 
             *found = 1;
-        
-        printf("%s:%d,pos:%d,nrkey:%d\n",__FUNCTION__,__LINE__,i,item->item->nrkeys);
+        if(i == BTREE_KEY_MAX) i = BTREE_KEY_MAX - 1;
+        printf("%s:%d,pos:%d,nrkey:%d,item[0].ino:%llu,item[%d]:%llu\n",__FUNCTION__,__LINE__,i,item->item->nrkeys,\
+               item->item->key[0].ino,i,item->item->key[i].ino);
     }
     
     return i;
 }
+
+static inline void __read_ptrs(struct stp_bnode * node,int idx)
+{
+    assert(node);
+    if(node->ptrs[idx] ||(!node->item->ptrs[idx].offset) ) return;
+    
+    struct stp_bnode * bnode;
+    bnode = node->tree->ops->allocate(node->tree,node->item->ptrs[idx].offset);
+    
+    assert(bnode);
+    node->ptrs[idx] = bnode;
+}
+
 
 /*
  * return leaf node and the ptrs inserted less than ino or position of equal than ino
@@ -373,7 +387,6 @@ static struct stp_bnode * __do_btree_search(struct stp_bnode *root,u64 ino,int *
       
     do{
       i = __binary_search(node,ino,&found);
-      printf("%s:i:%d,found:%d,line:%d\n",__FUNCTION__,i,found,__LINE__);
 
       if(i < 0) return NULL;
       if(found && !(node->item->flags & BTREE_ITEM_LEAF)) {
@@ -384,7 +397,12 @@ static struct stp_bnode * __do_btree_search(struct stp_bnode *root,u64 ino,int *
       last = node;
       
       if(node->item->flags & BTREE_ITEM_LEAF) break;
+
+      __read_ptrs(node,i);
       node = node->ptrs[i];
+      
+      printf("%s:i:%d,found:%d,line:%d,node:%p\n",__FUNCTION__,i,found,__LINE__,node);
+
     }while(node);
 
     *f = found;
@@ -480,7 +498,7 @@ static inline void __read_parent(struct stp_bnode *node)
     if(node->parent || is_root(node->tree,node)) return;
     
     struct stp_bnode *bnode;
-    int pos,found;
+    //    int pos,found;
     
     bnode = node->tree->ops->allocate(node->tree,node->item->parent.offset);
     
@@ -488,7 +506,6 @@ static inline void __read_parent(struct stp_bnode *node)
     node->parent = bnode;
     //    pos = __binary_search(bnode,node->item->key[0].ino,&found);
 }
-
 
 static int __do_btree_insert2(struct stp_btree_info *sb,const struct stp_bnode_off *off,u8 flags,struct stp_bnode *curr)
 {
@@ -519,6 +536,10 @@ static int __do_btree_insert2(struct stp_btree_info *sb,const struct stp_bnode_o
             pthread_mutex_unlock(&sb->mutex);
         }
         __copy_item(sb,node,off,i);
+        if(found) {
+            printf("[Warning]:BTREE_OVER_FLAPE\n");
+        }
+        
         return 0;
     } else { 
         //stp_errno = STP_NO_SYSCALL;
@@ -534,8 +555,9 @@ static int __do_btree_insert2(struct stp_btree_info *sb,const struct stp_bnode_o
             sb->ops->debug_btree(sb);
             return __do_btree_insert2(sb,off,flags,NULL);
         } 
-        stp_errno = STP_NO_SYSCALL;
-        return -1;
+        //problem in here
+        //stp_errno = STP_NO_SYSCALL;
+        //return -1;
         //it must be considered situation:
         //the node must be leaf,because __do_btree_search must reach the leaf node
         struct stp_bnode *tmp;
@@ -658,14 +680,28 @@ static int __do_btree_split_leaf(struct stp_btree_info *sb,struct stp_bnode *roo
 
   __move_backward(node->item,pos);
   
+  //nrptrs also one larger than nrkeys 
   node->item->nrkeys++;
-  node->item->nrptrs++;
+  node->item->nrptrs = node->item->nrkeys + 1;
   node->item->level = root->item->level - 1;
   //problem in here !! may be the parent node has the root
   node->ptrs[pos+1] = _new;
   node->ptrs[pos]  = root;
+  
+  off.ino = _new->item->key[0].ino;
+  off.flags = _new->item->flags;
+  off.len = _new->item->location.count;
+  off.offset = _new->item->location.offset;
+  __copy_bnode_off(&node->item->ptrs[pos+1],&off);
+  
+  off.ino = root->item->key[0].ino;
+  off.flags = root->item->flags;
+  off.len = root->item->location.count;
+  off.offset = root->item->location.offset;
+  __copy_bnode_off(&node->item->ptrs[pos],&off);
+  
   //so,if the pos don't equal to 0,so don't increment
-  if(!pos) node->item->nrptrs++;
+  //  if(!pos) node->item->nrptrs++;
   node->item->flags &= ~BTREE_ITEM_LEAF;
   node->parent = root->parent;
   //!! it is total different from split_internal
@@ -755,9 +791,24 @@ static  int __do_btree_split_internal(struct stp_btree_info *sb,struct stp_bnode
   __move_backward(node->item,pos);
 
   node->item->nrkeys++;
+  node->item->nrptrs = node->item->nrkeys + 1;
   node->ptrs[pos]  = root;
   node->ptrs[pos+1] = _new;
   node->parent = root->parent;
+
+  //record ptrs position
+  off.ino = _new->item->key[0].ino;
+  off.flags = _new->item->flags;
+  off.len = _new->item->location.count;
+  off.offset = _new->item->location.offset;
+  __copy_bnode_off(&node->item->ptrs[pos+1],&off);
+  
+  off.ino = root->item->key[0].ino;
+  off.flags = root->item->flags;
+  off.len = root->item->location.count;
+  off.offset = root->item->location.offset;
+  __copy_bnode_off(&node->item->ptrs[pos],&off);
+
   //move the internal_left key into parent
   __copy_bnode_key(&node->item->key[pos],&root->item->key[BTREE_INTERNAL_LEFT]);
   
@@ -768,8 +819,6 @@ static  int __do_btree_split_internal(struct stp_btree_info *sb,struct stp_bnode
   __copy_bnode_off(&node->item->ptrs[pos+1],&off);
   node->flags |= STP_INDEX_BNODE_DIRTY;
   list_move(&sb->dirty_list,&node->dirty);
-  
-  node->item->nrptrs++;
 
   //link the left and right
   __copy_bnode_off(&root->item->ptrs[BTREE_INTERNAL_LEFT],&off);
@@ -875,14 +924,15 @@ static void do_btree_super_debug_root(const struct stp_btree_info *sb)
     node = sb->root;
     while(f <= b && node) 
     {
-        printf("node:%p,nrkeys:%u,ptrs:%u,level:%u,flags:%d,parent:%p\n",node,node->item->nrkeys,node->item->nrptrs,node->item->level,node->item->flags,node->parent);
+        printf("node:%p,nrkeys:%u,ptrs:%u,level:%u,flags:%d,parent:%p\n",node,node->item->nrkeys,node->item->nrptrs,\
+               node->item->level,node->item->flags,node->parent);
         printf("offset:%llu,len:%llu\n",node->item->location.offset,node->item->location.count);
 
         for(i = 0;i<node->item->nrptrs;i++)
         {
             if(!node->ptrs[i]) continue;
             if(node->ptrs[i]) n[b++] = node->ptrs[i];
-            printf("ptrs[%d]:%p\n",i,node->ptrs[i]);
+            printf("ptrs[%d]:%p,offset:%llu\n",i,node->ptrs[i],node->ptrs[i]->item->location.offset);
             //printf("ptrs[%d]:%p,offset:%llu,len:%llu,flags:%d\n",i,node->ptrs[i],node->item->ptrs[i].offset,node->item->ptrs[i].len, \
                 //       node->item->ptrs[i].flags);
         }
