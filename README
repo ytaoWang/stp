@@ -1,7 +1,7 @@
 General Information
 ======================
 
-STP (SubTree Partition) is a simple interface for metadata storage. It aims to provide a mechanism for storing metadata like BigTable or HFile.
+STP (SubTree Partition) is a simple interface for metadata storage. It aims at providing a mechanism for storing metadata like BigTable or HFile.
 
 Dependencies
 ======================

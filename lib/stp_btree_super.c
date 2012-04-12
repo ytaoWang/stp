@@ -38,6 +38,7 @@ static struct stp_bnode * __get_btree_bnode(struct stp_btree_info * sb)
     memset(bnode->ptrs,0,sizeof(struct stp_bnode *)*(CHILD(BTREE_DEGREE)));
     bnode->tree = sb;
     bnode->ops = &bnode_operations;
+    bnode->parent = NULL;
     
     return bnode;
 }
@@ -438,6 +439,23 @@ static void __move_backward(struct stp_bnode_item *item,int idx)
     }
 }
 
+static int __do_btree_split_leaf(struct stp_btree_info *,struct stp_bnode *,struct stp_bnode *,int);
+static int __do_btree_split_internal(struct stp_btree_info *,struct stp_bnode *,struct stp_bnode *,int);
+
+static inline int is_root(const struct stp_btree_info *sb,const struct stp_bnode *node) 
+{
+    return ((sb->super->root.offset == node->item->location.offset) && (sb->super->root.count == node->item->location.count) \
+            && (sb->super->root.flags == node->item->location.flags) && (sb->super->root.nritems == node->item->location.nritems));
+}
+
+static inline void set_root(struct stp_btree_info *sb,struct stp_bnode *node)
+{
+    sb->super->root.offset = node->item->location.offset;
+    sb->super->root.count = node->item->location.count;
+    sb->super->root.flags = node->item->location.flags;
+    sb->super->root.nritems = node->item->location.nritems;
+}
+
 
 static int __do_btree_insert2(struct stp_btree_info *sb,struct stp_bnode_off *off)
 {
@@ -473,18 +491,41 @@ static int __do_btree_insert2(struct stp_btree_info *sb,struct stp_bnode_off *of
       list_move(&sb->dirty_list,&node->dirty);
       node->flags |= STP_INDEX_BNODE_DIRTY;
       
-    } else {
-      //split  the node
-        stp_errno = STP_NO_SYSCALL;
-        printf("It's full,%s:%d\n",__FUNCTION__,__LINE__);
-        
-        return -1;
-      //__do_split(node,)
-      //insert key
+      return 0;
+    } else {  
+        //split  the node
+        //split the leaf is different from internal node
+        if(!node->parent) { //it's root
+            struct stp_bnode * bnode;
+            
+            assert(is_root(sb,node));
+            if(!(bnode = sb->ops->allocate(sb,0))) return -1;
+      
+            if( __do_btree_split_leaf(sb,node,bnode,0) < 0)
+                return -1;
+            return 0;
+        } else {
+            //find the proper position from node's parent
+            i = __binary_search(node->parent,node->item->key[BTREE_DEGREE].ino,&found);
+            //split the internal node
+            if(__do_btree_split_internal(sb,node,node->parent,i) < 0)
+                return -1;
+            //__do_btree_split_internal()
+            stp_errno = STP_NO_SYSCALL;
+            return -1;
+        }
+        //insert key
+        //Does it's parent is full?
+        node = node->parent;
+        /*
+        while(node->item->nrkeys != BTREE_KEY_MAX) {
+            //split the internal node
+            //insert intermediate key
+        }
+        */
     }
     
     //    sb->ops->debug(node);
-    return 0;
 }
 
 static void __copy_bnode_key(struct stp_bnode_key *dest,const struct stp_bnode_key *src)
@@ -505,14 +546,14 @@ static void __copy_bnode_off(struct stp_bnode_off *dest,const struct stp_bnode_o
 #define BTREE_RIGHT (BTREE_DEGREE)
 /**
   * 
-  * split root into two part:root(left t),node(parent),_new(right t-1)
+  * split root into two part:root(left t-1),node(parent),_new(right t)
   * insert node position pos
   * split also has two sitution:split leaf and split internal
   * 
   *  18   20
   * /   /    \
-  *     20  27 29
-  *    /  /  /  \ 
+  *        20 27 29
+  *        /  / /  \ 
   * split 
   * 18 20 27
   * / \  /  \
@@ -529,9 +570,9 @@ static int __do_btree_split_leaf(struct stp_btree_info *sb,struct stp_bnode *roo
   
   if(!(_new = sb->ops->allocate(sb,0))) return -1;
   
-  //copy right key into _new
+  //copy right key(t) into _new,and left t-1
   i = BTREE_LEFT;
-  while(i < BTREE_CHILD_MAX) {
+  while(i < BTREE_KEY_MAX) {
     __copy_bnode_key(&_new->item->key[i - BTREE_LEFT],&root->item->key[i]);
     __copy_bnode_off(&_new->item->ptrs[i - BTREE_LEFT],&root->item->ptrs[i]);
     memset(&root->item->key[i],0,sizeof(root->item->key[i]));
@@ -540,39 +581,51 @@ static int __do_btree_split_leaf(struct stp_btree_info *sb,struct stp_bnode *roo
   }
  
   __copy_bnode_off(&_new->item->ptrs[i-BTREE_DEGREE],&root->item->ptrs[i]);
+  memset(&root->item->ptrs[i],0,sizeof(root->item->ptrs[i]));
   
   _new->flags |= STP_INDEX_BNODE_DIRTY;
   _new->item->nrkeys = BTREE_RIGHT;
+  _new->item->flags |= BTREE_ITEM_LEAF;
+  _new->item->nrptrs = _new->item->nrkeys + 1;
   _new->parent = node;
 
   root->item->nrkeys = BTREE_LEFT;
   root->item->flags |= BTREE_ITEM_LEAF;
   root->flags |= STP_INDEX_BNODE_DIRTY;
+  root->item->nrptrs = root->item->nrkeys+1;
   root->parent = node;
+  
   list_move(&sb->dirty_list,&_new->dirty);
   list_move(&sb->dirty_list,&root->dirty);
 
-  i = node->item->nrkeys;
-  while(i > pos) 
-  {
-    __copy_bnode_key(&node->item->key[i],&node->item->key[i-1]);
-    __copy_bnode_off(&node->item->ptrs[i+1],&node->item->ptrs[i]);
-    node->ptrs[i+1] = node->ptrs[i];
-    i--;
-  }
+  __move_backward(node->item,pos);
+  
   node->item->nrkeys++;
+  node->item->nrptrs++;
   node->ptrs[pos+1] = _new;
+  node->ptrs[pos]  = root;
   node->parent = root->parent;
   //!! it is total different from split_internal
   __copy_bnode_key(&node->item->key[pos],&_new->item->key[0]);
-  
+
   off.ino = _new->item->key[0].ino;
   off.flags = _new->item->flags;
   off.len = _new->item->location.count;
   off.offset = _new->item->location.offset;
   __copy_bnode_off(&node->item->ptrs[pos+1],&off);
+  node->flags |= STP_INDEX_BNODE_DIRTY;
+  list_move(&sb->dirty_list,&node->dirty);
   
+  //link the left and right
+  __copy_bnode_off(&root->item->ptrs[root->item->nrkeys],&off);
+
   node->item->flags &= ~BTREE_ITEM_LEAF;
+
+  if(is_root(sb,root)) 
+      set_root(sb,root);
+  
+
+  return 0;
 }
 
 /**
