@@ -12,7 +12,9 @@
 #include "list.h"
 #include "bitmap.h"
 
-#define BTREE_OVERLAP (1<<0)
+#define BTREE_LEFT (BTREE_DEGREE-1)
+#define BTREE_RIGHT (BTREE_DEGREE)
+
 
 static umem_cache_t *btree_bnode_slab = NULL; //size:32,stp_inode_item:128,stp_inode:68
 //can't allocate memory for btree_bnode_item_slab
@@ -222,9 +224,7 @@ static struct stp_bnode *do_btree_super_allocate(struct stp_btree_info *super,of
         bnode->item->level = 0;
         bnode->item->location.count = sizeof(struct stp_bnode_item);
         bnode->item->location.nritems = 1;
-
-        printf("%s:%d,off:%u,offset:%llu,count:%llu,SUPER:%u\n",__FUNCTION__,__LINE__,off,\
-               bnode->item->location.offset,bnode->item->location.count,BTREE_SUPER_SIZE);
+        memset(&bnode->item->parent,0,sizeof(struct stp_header));
     }
 
     pthread_mutex_lock(&super->mutex);
@@ -233,6 +233,9 @@ static struct stp_bnode *do_btree_super_allocate(struct stp_btree_info *super,of
     //lru replcement policy in here
     pthread_mutex_unlock(&super->mutex);
 
+    printf("%s:%d,active:%u,offset:%llu,count:%llu,SUPER:%u\n",__FUNCTION__,__LINE__,super->active,\
+               bnode->item->location.offset,bnode->item->location.count,BTREE_SUPER_SIZE);
+    
     return bnode;
 }
     
@@ -379,8 +382,10 @@ static struct stp_bnode * __do_btree_search(struct stp_bnode *root,u64 ino,int *
       }
       
       last = node;
+      
+      if(node->item->flags & BTREE_ITEM_LEAF) break;
       node = node->ptrs[i];
-    }while(node && !(node->item->flags & BTREE_ITEM_LEAF));
+    }while(node);
 
     *f = found;
     *index = i;
@@ -450,16 +455,44 @@ static inline int is_root(const struct stp_btree_info *sb,const struct stp_bnode
 
 static inline void set_root(struct stp_btree_info *sb,struct stp_bnode *node)
 {
+    sb->root = node;
     sb->super->root.offset = node->item->location.offset;
     sb->super->root.count = node->item->location.count;
     sb->super->root.flags = node->item->location.flags;
     sb->super->root.nritems = node->item->location.nritems;
 }
 
-
-static int __do_btree_insert2(struct stp_btree_info *sb,struct stp_bnode_off *off)
+static inline void __copy_item(struct stp_btree_info *sb,struct stp_bnode *node,const struct stp_bnode_off *off,int idx)
 {
-    struct stp_bnode *root = sb->root;
+    node->item->key[idx].ino = off->ino;
+    node->item->key[idx].flags = off->flags;
+    node->item->ptrs[idx].ino = off->ino;
+    node->item->ptrs[idx].flags = off->flags;
+    node->item->ptrs[idx].len = off->len;
+    node->item->ptrs[idx].offset = off->offset;
+      
+    list_move(&sb->dirty_list,&node->dirty);
+    node->flags |= STP_INDEX_BNODE_DIRTY;
+}
+
+static inline void __read_parent(struct stp_bnode *node)
+{
+    if(node->parent || is_root(node->tree,node)) return;
+    
+    struct stp_bnode *bnode;
+    int pos,found;
+    
+    bnode = node->tree->ops->allocate(node->tree,node->item->parent.offset);
+    
+    assert(bnode);
+    node->parent = bnode;
+    //    pos = __binary_search(bnode,node->item->key[0].ino,&found);
+}
+
+
+static int __do_btree_insert2(struct stp_btree_info *sb,const struct stp_bnode_off *off,u8 flags,struct stp_bnode *curr)
+{
+    struct stp_bnode *root = curr? curr:sb->root;
     struct stp_bnode *node;
     int i,found;
     
@@ -468,65 +501,84 @@ static int __do_btree_insert2(struct stp_btree_info *sb,struct stp_bnode_off *of
     node = __do_btree_search(root,off->ino,&i,&found);
     
     if(!node) return -1;
+    if(found && !(flags & BTREE_OVERFLAP)) {
+        stp_errno = STP_INDEX_EXIST;
+        return -1;
+    }
+    
     //    sb->ops->debug(node);
-    if(node->item->nrkeys != BTREE_KEY_MAX) {
-      printf("i:%d,found:%d\n",i,found);
-      if(!found) {
-          //move backward
-          __move_backward(node->item,i);
-          node->item->nrkeys++;
+    if((found && (flags & BTREE_OVERFLAP)) || (node->item->nrkeys != BTREE_KEY_MAX)) {
+        printf("insert pos:%d,found:%d,ino:%llu,nrkeys:%u,node:%p\n",i,found,off->ino,node->item->nrkeys,node);
+        if(!found) {
+            //move backward
+            __move_backward(node->item,i);
+            node->item->nrkeys++;
         
-          pthread_mutex_lock(&sb->mutex);
-          sb->super->nrkeys ++;
-          pthread_mutex_unlock(&sb->mutex);
-      }
-      
-      node->item->key[i].ino = off->ino;
-      node->item->key[i].flags = off->flags;
-      node->item->ptrs[i].ino = off->ino;
-      node->item->ptrs[i].flags = off->flags;
-      node->item->ptrs[i].len = off->len;
-      node->item->ptrs[i].offset = off->offset;
-      
-      list_move(&sb->dirty_list,&node->dirty);
-      node->flags |= STP_INDEX_BNODE_DIRTY;
-      
-      return 0;
-    } else {  
+            pthread_mutex_lock(&sb->mutex);
+            sb->super->nrkeys ++;
+            pthread_mutex_unlock(&sb->mutex);
+        }
+        __copy_item(sb,node,off,i);
+        return 0;
+    } else { 
+        //stp_errno = STP_NO_SYSCALL;
+        //return -1;
         //split  the node
         //split the leaf is different from internal node
-        if(!node->parent) { //it's root
+        if(is_root(sb,node)) { //it's root
             struct stp_bnode * bnode;
-            
-            assert(is_root(sb,node));
             if(!(bnode = sb->ops->allocate(sb,0))) return -1;
-      
+            
             if( __do_btree_split_leaf(sb,node,bnode,0) < 0)
                 return -1;
-            return 0;
-        } else {
+            sb->ops->debug_btree(sb);
+            return __do_btree_insert2(sb,off,flags,NULL);
+        } 
+        stp_errno = STP_NO_SYSCALL;
+        return -1;
+        //it must be considered situation:
+        //the node must be leaf,because __do_btree_search must reach the leaf node
+        struct stp_bnode *tmp;
+        int pos;
+        pos = i;
+        tmp = node->parent;//fasten search when recording current position
+        __read_parent(node);
+        //find the proper position from node's parent
+        i = __binary_search(node->parent,node->item->key[BTREE_LEFT].ino,&found);
+        assert(!found && i>=0);
+        node->parent->ptrs[i] = node;
+        //split the left node
+        if(__do_btree_split_leaf(sb,node,node->parent,i) < 0)
+            return -1;        
+       
+        //insert key
+        //Does it's parent is full? !!problem in here
+        node = node->parent;
+        while(node->item->nrkeys != BTREE_KEY_MAX) {
+            __read_parent(node);
             //find the proper position from node's parent
-            i = __binary_search(node->parent,node->item->key[BTREE_DEGREE].ino,&found);
+            i = __binary_search(node->parent,node->item->key[BTREE_LEFT].ino,&found);
+            assert(!found && i >= 0);
+            node->parent->ptrs[i] = node;
             //split the internal node
             if(__do_btree_split_internal(sb,node,node->parent,i) < 0)
                 return -1;
-            //__do_btree_split_internal()
-            stp_errno = STP_NO_SYSCALL;
-            return -1;
         }
-        //insert key
-        //Does it's parent is full?
-        node = node->parent;
-        /*
-        while(node->item->nrkeys != BTREE_KEY_MAX) {
-            //split the internal node
-            //insert intermediate key
-        }
-        */
+        //insert the key
+        return __do_btree_insert2(sb,off,flags,tmp);
     }
     
     //    sb->ops->debug(node);
 }
+
+static void __set_header(struct stp_header *dest,const struct stp_header *src)
+{
+    dest->offset = src->offset;
+    dest->count = src->count;
+    dest->flags = src->flags;
+    dest->nritems = src->nritems;
+}
+
 
 static void __copy_bnode_key(struct stp_bnode_key *dest,const struct stp_bnode_key *src)
 {
@@ -542,8 +594,6 @@ static void __copy_bnode_off(struct stp_bnode_off *dest,const struct stp_bnode_o
   dest->offset = src->offset;
 }
 
-#define BTREE_LEFT (BTREE_DEGREE-1)
-#define BTREE_RIGHT (BTREE_DEGREE)
 /**
   * 
   * split root into two part:root(left t-1),node(parent),_new(right t)
@@ -566,7 +616,8 @@ static int __do_btree_split_leaf(struct stp_btree_info *sb,struct stp_bnode *roo
   struct stp_bnode *_new;
   struct stp_bnode_off off;
 
-  assert(root->item->nrkeys == BTREE_CHILD_MAX);
+  printf("%s:%d,nrkeys:%d\n",__FUNCTION__,__LINE__,root->item->nrkeys);
+  assert(root->item->nrkeys == BTREE_KEY_MAX);
   
   if(!(_new = sb->ops->allocate(sb,0))) return -1;
   
@@ -577,23 +628,30 @@ static int __do_btree_split_leaf(struct stp_btree_info *sb,struct stp_bnode *roo
     __copy_bnode_off(&_new->item->ptrs[i - BTREE_LEFT],&root->item->ptrs[i]);
     memset(&root->item->key[i],0,sizeof(root->item->key[i]));
     memset(&root->item->ptrs[i],0,sizeof(root->item->ptrs[i]));
+    _new->ptrs[i - BTREE_LEFT] = root->ptrs[i];
+    root->ptrs[i] = NULL;
     i++;
   }
- 
+
   __copy_bnode_off(&_new->item->ptrs[i-BTREE_DEGREE],&root->item->ptrs[i]);
+  _new->ptrs[i - BTREE_DEGREE] = root->ptrs[i];
   memset(&root->item->ptrs[i],0,sizeof(root->item->ptrs[i]));
   
   _new->flags |= STP_INDEX_BNODE_DIRTY;
   _new->item->nrkeys = BTREE_RIGHT;
   _new->item->flags |= BTREE_ITEM_LEAF;
   _new->item->nrptrs = _new->item->nrkeys + 1;
+  __set_header(&_new->item->parent,&node->item->parent);
   _new->parent = node;
+  _new->item->level = root->item->level + 1;
 
   root->item->nrkeys = BTREE_LEFT;
   root->item->flags |= BTREE_ITEM_LEAF;
   root->flags |= STP_INDEX_BNODE_DIRTY;
   root->item->nrptrs = root->item->nrkeys+1;
+  __set_header(&root->item->parent,&node->item->parent);
   root->parent = node;
+  root->item->level ++;
   
   list_move(&sb->dirty_list,&_new->dirty);
   list_move(&sb->dirty_list,&root->dirty);
@@ -602,8 +660,13 @@ static int __do_btree_split_leaf(struct stp_btree_info *sb,struct stp_bnode *roo
   
   node->item->nrkeys++;
   node->item->nrptrs++;
+  node->item->level = root->item->level - 1;
+  //problem in here !! may be the parent node has the root
   node->ptrs[pos+1] = _new;
   node->ptrs[pos]  = root;
+  //so,if the pos don't equal to 0,so don't increment
+  if(!pos) node->item->nrptrs++;
+  node->item->flags &= ~BTREE_ITEM_LEAF;
   node->parent = root->parent;
   //!! it is total different from split_internal
   __copy_bnode_key(&node->item->key[pos],&_new->item->key[0]);
@@ -622,7 +685,7 @@ static int __do_btree_split_leaf(struct stp_btree_info *sb,struct stp_bnode *roo
   node->item->flags &= ~BTREE_ITEM_LEAF;
 
   if(is_root(sb,root)) 
-      set_root(sb,root);
+      set_root(sb,node);
   
 
   return 0;
@@ -649,6 +712,7 @@ static  int __do_btree_split_internal(struct stp_btree_info *sb,struct stp_bnode
   struct stp_bnode *_new;
   struct stp_bnode_off off;
 
+  printf("%s:%d,nrkeys:%d\n",__FUNCTION__,__LINE__,root->item->nrkeys);
   assert(root->item->nrkeys == BTREE_CHILD_MAX);
   
   if(!(_new = sb->ops->allocate(sb,0))) return -1;
@@ -658,36 +722,43 @@ static  int __do_btree_split_internal(struct stp_btree_info *sb,struct stp_bnode
   while(i < BTREE_CHILD_MAX) {
     __copy_bnode_key(&_new->item->key[i - (BTREE_INTERNAL_LEFT + 1)],&root->item->key[i]);
     __copy_bnode_off(&_new->item->ptrs[i - (BTREE_INTERNAL_LEFT + 1)],&root->item->ptrs[i]);
+    _new->ptrs[i - (BTREE_INTERNAL_LEFT + 1)] = root->ptrs[i];
     memset(&root->item->key[i],0,sizeof(root->item->key[i]));
     memset(&root->item->ptrs[i],0,sizeof(root->item->ptrs[i]));
+    root->ptrs[i] = NULL;
     i++;
   }
  
   __copy_bnode_off(&_new->item->ptrs[i-BTREE_DEGREE],&root->item->ptrs[i]);
+  _new->ptrs[i-BTREE_DEGREE] = root->ptrs[i];
+  memset(&root->item->ptrs[i],0,sizeof(root->item->ptrs[i]));
   
   _new->flags |= STP_INDEX_BNODE_DIRTY;
   _new->item->nrkeys = BTREE_INTERNAL_RIGHT;
   _new->item->flags &= ~BTREE_ITEM_LEAF;
   _new->parent = node;
-
+  __set_header(&_new->item->parent,&node->item->parent);
+  _new->item->level = root->item->level + 1;
+  _new->item->nrptrs = _new->item->nrkeys + 1;
+  
   root->item->nrkeys = BTREE_INTERNAL_LEFT;
+  root->item->nrptrs = root->item->nrkeys + 1;
   root->item->flags &= ~BTREE_ITEM_LEAF;
   root->flags |= STP_INDEX_BNODE_DIRTY;
+  root->item->level ++;
   root->parent = node;
+  __set_header(&root->item->parent,&node->item->parent);
+  
   list_move(&sb->dirty_list,&_new->dirty);
   list_move(&sb->dirty_list,&root->dirty);
 
-  i = node->item->nrkeys;
-  while(i > pos) 
-  {
-    __copy_bnode_key(&node->item->key[i],&node->item->key[i-1]);
-    __copy_bnode_off(&node->item->ptrs[i+1],&node->item->ptrs[i]);
-    node->ptrs[i+1] = node->ptrs[i];
-    i--;
-  }
+  __move_backward(node->item,pos);
+
   node->item->nrkeys++;
+  node->ptrs[pos]  = root;
   node->ptrs[pos+1] = _new;
   node->parent = root->parent;
+  //move the internal_left key into parent
   __copy_bnode_key(&node->item->key[pos],&root->item->key[BTREE_INTERNAL_LEFT]);
   
   off.ino = _new->item->key[0].ino;
@@ -695,8 +766,16 @@ static  int __do_btree_split_internal(struct stp_btree_info *sb,struct stp_bnode
   off.len = _new->item->location.count;
   off.offset = _new->item->location.offset;
   __copy_bnode_off(&node->item->ptrs[pos+1],&off);
+  node->flags |= STP_INDEX_BNODE_DIRTY;
+  list_move(&sb->dirty_list,&node->dirty);
   
+  node->item->nrptrs++;
+
+  //link the left and right
+  __copy_bnode_off(&root->item->ptrs[BTREE_INTERNAL_LEFT],&off);
   node->item->flags &= ~BTREE_ITEM_LEAF;
+
+  return 0;
 }
 
 
@@ -723,19 +802,13 @@ static int __do_btree_insert(struct stp_btree_info *sb,struct stp_bnode_off *off
  * store a key(ino),value(size,offset) into B+ tree
  *
  */
-static int do_btree_super_insert(struct stp_btree_info *sb,u64 ino,size_t size,off_t offset)
+static int do_btree_super_insert(struct stp_btree_info *sb,const struct stp_bnode_off *off,u8 flags)
 {
     struct stp_bnode *root = sb->root;
-    struct stp_bnode_off off;
     
-    assert(ino !=0 && size >0 && offset > 0);
+    assert(off->ino !=0 && off->len >0 && off->offset > 0);
     
-    off.ino = ino;
-    off.flags = BTREE_OVERLAP;
-    off.len = size;
-    off.offset = offset;
-    
-    return  __do_btree_insert2(sb,&off);
+    return  __do_btree_insert2(sb,off,flags,NULL);
 }
 
 static int do_btree_super_rm(struct stp_btree_info *sb,u64 ino)
@@ -772,22 +845,50 @@ static int do_btree_super_destroy(struct stp_btree_info *sb)
     return 0;
 }
 
-void do_btree_super_debug(const struct stp_bnode *node)
+static void do_btree_super_debug(const struct stp_bnode *node)
 {
-  	int i;
-
-    printf("-----------function:%s\n",__FUNCTION__);
+    int i;
     
-    printf("nrkeys:%u,ptrs:%u,level:%u,flags:%d\n",node->item->nrkeys,node->item->nrptrs,node->item->level,node->item->flags);
-  	for(i = 0;i<node->item->nrkeys;i++)
+    printf("nrkeys:%u,ptrs:%u,level:%u,flags:%d,parent:%p\n",node->item->nrkeys,node->item->nrptrs,node->item->level,node->item->flags,node->parent);
+    printf("offset:%llu,len:%llu",node->item->location.offset,node->item->location.count);
+    for(i = 0;i<node->item->nrkeys;i++)
     {
-      printf("ino:%llu,flags:%d\n",node->item->key[i].ino,node->item->key[i].flags);
+        printf("ino:%llu,flags:%d\n",node->item->key[i].ino,node->item->key[i].flags);
     }
 
     for(i = 0;i<node->item->nrptrs;i++)
     {
-      printf("offset:%llu,len:%llu,flags:%d\n",node->item->ptrs[i].offset,node->item->ptrs[i].len,node->item->ptrs[i].flags);
+        printf("ptrs[%d]:%p,offset:%llu,len:%llu,flags:%d\n",i,node->ptrs[i],node->item->ptrs[i].offset,node->item->ptrs[i].len,\
+               node->item->ptrs[i].flags);
     }
+}
+
+static void do_btree_super_debug_root(const struct stp_btree_info *sb)
+{
+  	int i,f,b;
+    struct stp_bnode *n[10];
+    struct stp_bnode *node;
+    
+    printf("-----------function:%s,root:%p\n",__FUNCTION__,sb->root);
+    f = 0;
+    b = 0;
+    node = sb->root;
+    while(f <= b && node) 
+    {
+        printf("node:%p,nrkeys:%u,ptrs:%u,level:%u,flags:%d,parent:%p\n",node,node->item->nrkeys,node->item->nrptrs,node->item->level,node->item->flags,node->parent);
+        printf("offset:%llu,len:%llu\n",node->item->location.offset,node->item->location.count);
+
+        for(i = 0;i<node->item->nrptrs;i++)
+        {
+            if(!node->ptrs[i]) continue;
+            if(node->ptrs[i]) n[b++] = node->ptrs[i];
+            printf("ptrs[%d]:%p\n",i,node->ptrs[i]);
+            //printf("ptrs[%d]:%p,offset:%llu,len:%llu,flags:%d\n",i,node->ptrs[i],node->item->ptrs[i].offset,node->item->ptrs[i].len, \
+                //       node->item->ptrs[i].flags);
+        }
+        node = n[f++];
+    }
+    
     printf("-------------------------\n");
 }
 
@@ -802,8 +903,6 @@ const struct stp_btree_operations stp_btree_super_operations ={
     .rm  = do_btree_super_rm,
     .destroy = do_btree_super_destroy,
     .debug = do_btree_super_debug,
+    .debug_btree = do_btree_super_debug_root,
     .allocate = do_btree_super_allocate,
 };
-
-
-

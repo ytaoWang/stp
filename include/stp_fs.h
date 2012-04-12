@@ -190,7 +190,8 @@ struct stp_bnode_item {  //4096 bytes
     u32 nrptrs;
     u32 level;
     u8 flags;
-    u8 padding[59];
+    struct stp_header parent;
+    u8 padding[38];
 }__attribute__((__packed__));
 
 
@@ -261,7 +262,8 @@ struct stp_btree_operations {
   	// ino must be unique
     int (*search)(struct stp_btree_info *,u64 ino,struct stp_bnode_off * );
   	void (*debug)(const struct stp_bnode *);
-    int (*insert)(struct stp_btree_info *,u64 ino,size_t size,off_t offset);
+    void (*debug_btree)(const struct stp_btree_info *);
+    int (*insert)(struct stp_btree_info *,const struct stp_bnode_off *,u8);
     int (*rm)(struct stp_btree_info *,u64 ino);
     int (*destroy)(struct stp_btree_info *);
 };
@@ -301,7 +303,11 @@ typedef unsigned int stp_error;
 extern stp_error stp_errno;
 
 typedef STP_FILE_INFO* STP_FILE;
-    
+
+/*
+ * recore insert flags
+ */
+#define BTREE_OVERFLAP (1<<0)    
 
 #ifdef __cplusplus
 }

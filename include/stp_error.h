@@ -36,9 +36,10 @@
 #define STP_BNODE_MALLOC_ERROR     32
 #define STP_INVALID_ARGUMENT       33
 #define STP_NO_SYSCALL             34
+#define STP_INDEX_EXIST 	       35
 
 #define STP_MIN_ERRNO             0
-#define STP_MAX_ERRNO             34
+#define STP_MAX_ERRNO             35
 
 #define N_(s)  (s)
 #define _(s)  ((const char *)s)

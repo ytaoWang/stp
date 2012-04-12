@@ -40,6 +40,7 @@ const char * const stp_errlist[STP_MAX_ERRNO + 1] = {
     N_("Fail to allocate bnode"),/*STP_BNODE_MALLOC_ERROR 32*/
     N_("Invalid argument."),/*STP_INVALID_ARGUMENT 33*/
     N_("Function not implemented"),/*STP_NO_SYSCALL 34*/
+    N_("Index key has existed"),/*STP_INDEX_EXIST */
     };
 
     

@@ -230,7 +230,8 @@ int stp_creat(STP_FILE file,const char *filename)
   struct stp_fs_info *fs;
   struct stp_btree_info *tree;
   static u64 ino = 1;
-
+  struct stp_bnode_off off;
+  
   if(!file) {
       stp_errno = STP_INVALID_ARGUMENT;
       return -1;
@@ -243,6 +244,10 @@ int stp_creat(STP_FILE file,const char *filename)
       stp_errno =  STP_INDEX_CANT_BE_WRITER;
       return -1;
   }
+  off.ino = ino++;
+  off.flags = 0;
+  off.len = 100;
+  off.offset = 20;
   //return 0;
-  return tree->ops->insert(tree,ino++,100,20);
+  return tree->ops->insert(tree,&off,BTREE_OVERFLAP);
 }

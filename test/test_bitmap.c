@@ -52,12 +52,13 @@ int main(int argc,char *argv[])
     /*
      * test b+ tree insert 
      **/
-    ino = 0;
+    ino = 1;
     while(ino < 1000) {
         if(stp_creat(file,"test1") < 0) {
             printf("creat file test1 error:%s,errno:%d\n",stp_strerror(stp_errno),stp_errno);
             break;
         }
+        printf("create file ino:%llu\n",ino);
         ino ++;
     }
     
