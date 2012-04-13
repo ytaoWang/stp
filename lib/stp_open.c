@@ -231,6 +231,7 @@ int stp_creat(STP_FILE file,const char *filename)
   struct stp_btree_info *tree;
   static u64 ino = 1;
   struct stp_bnode_off off;
+  u8 flags;
   
   if(!file) {
       stp_errno = STP_INVALID_ARGUMENT;
@@ -248,6 +249,9 @@ int stp_creat(STP_FILE file,const char *filename)
   off.flags = 0;
   off.len = 100;
   off.offset = 20;
+  printf("%s,ino:%llu\n",__FUNCTION__,off.ino);
   //return 0;
-  return tree->ops->insert(tree,&off,BTREE_OVERFLAP);
+  flags =  tree->ops->insert(tree,&off,BTREE_OVERFLAP);
+  tree->ops->debug_btree(tree);
+  return flags;
 }

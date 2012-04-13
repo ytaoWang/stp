@@ -370,7 +370,7 @@ static void check_free(umem_cache_t *cachep) {
   
   if(cachep->nrpage < PAGE_THRESHOLD) return;
   
-  #ifndef DEBUG
+  #ifdef DEBUG
   
   fprintf(stderr,"check_free is here\n");
   
