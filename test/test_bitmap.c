@@ -53,7 +53,7 @@ int main(int argc,char *argv[])
      * test b+ tree insert 
      **/
     ino = 1;
-    while(ino < 600) 
+    while(ino <= 7) 
     {
         //printf("create file ino:%llu\n",ino);
         if(stp_creat(file,"test1") < 0) {

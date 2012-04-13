@@ -12,11 +12,11 @@
 #include "list.h"
 #include "bitmap.h"
 
-#define BTREE_DEGREE_TEST  BTREE_DEGREE
+#define BTREE_DEGREE_TEST  2
 #define BTREE_LEFT (BTREE_DEGREE_TEST - 1)
 #define BTREE_RIGHT (BTREE_DEGREE_TEST)
 #define BTREE_KEY_MAX_TEST (KEY(BTREE_DEGREE_TEST))
-#define BTREE_CHILD_MAX_TEST (CHILD(BTREE_DEGREE))
+#define BTREE_CHILD_MAX_TEST (CHILD(BTREE_DEGREE_TEST))
 
 static umem_cache_t *btree_bnode_slab = NULL; //size:32,stp_inode_item:128,stp_inode:68
 //can't allocate memory for btree_bnode_item_slab
@@ -358,9 +358,9 @@ static int __binary_search(struct stp_bnode *item,u64 ino,int *found)
             i = l;
         } else 
             *found = 1;
-        if(i == BTREE_KEY_MAX_TEST) i = BTREE_KEY_MAX_TEST - 1;
-        printf("%s:%d,pos:%d,nrkey:%d,item[0].ino:%llu,item[%d]:%llu,found:%d\n",__FUNCTION__,__LINE__,i,item->item->nrkeys,\
-               item->item->key[0].ino,i,item->item->key[i].ino,*found);
+        //if(i == BTREE_KEY_MAX_TEST) i = BTREE_KEY_MAX_TEST - 1;
+        printf("%s:%d,pos:%d,nrkey:%d,item[0].ino:%llu,item[%d]:%llu,found:%d,search:%llu\n",__FUNCTION__,__LINE__,i,item->item->nrkeys,\
+               item->item->key[0].ino,i,item->item->key[i==BTREE_KEY_MAX_TEST?i-1:i].ino,*found,ino);
     }
     
     return i;
@@ -415,7 +415,7 @@ static struct stp_bnode * __do_btree_search(struct stp_bnode *root,u64 ino,int *
 
     *f = found;
     *index = i;
-    printf("funct:%s,line:%d,index:%d,found:%d,i:%d\n",__FUNCTION__,__LINE__,*index,*f,i);
+    printf("funct:%s,line:%d,index:%d,found:%d,pos:%d\n",__FUNCTION__,__LINE__,*index,*f,i);
     return last;
 }
 
@@ -486,6 +486,7 @@ static inline void set_root(struct stp_btree_info *sb,struct stp_bnode *node)
     sb->super->root.count = node->item->location.count;
     sb->super->root.flags = node->item->location.flags;
     sb->super->root.nritems = node->item->location.nritems;
+    node->parent = NULL;
 }
 
 static inline void __copy_item(struct stp_btree_info *sb,struct stp_bnode *node,const struct stp_bnode_off *off,int idx)
@@ -533,7 +534,7 @@ static int __do_btree_insert2(struct stp_btree_info *sb,const struct stp_bnode_o
     
     //    sb->ops->debug(node);
     if((found && (flags & BTREE_OVERFLAP)) || (node->item->nrkeys != BTREE_KEY_MAX_TEST)) {
-        printf("insert pos:%d,found:%d,ino:%llu,nrkeys:%u,node:%p,[%llu]\n",i,found,off->ino,node->item->nrkeys,node,node->item->key[0].ino);
+        printf("insert pos:%d,found:%d,ino:%llu,nrkeys:%u,node:%p,[item %llu]\n",i,found,off->ino,node->item->nrkeys,node,node->item->key[0].ino);
         if(!found) {
             //move backward
             __move_backward(node->item,i);
@@ -582,17 +583,25 @@ static int __do_btree_insert2(struct stp_btree_info *sb,const struct stp_bnode_o
             return -1;        
        
         //insert key
+        sb->ops->debug_btree(sb);
         //Does it's parent is full? !!problem in here
         node = node->parent;
-        while(node->item->nrkeys == BTREE_KEY_MAX_TEST) {
-            __read_parent(node);
-            //find the proper position from node's parent
-            i = __binary_search(node->parent,node->item->key[BTREE_LEFT].ino,&found);
-            assert(!found && i >= 0);
-            node->parent->ptrs[i] = node;
-            //split the internal node
-            if(__do_btree_split_internal(sb,node,node->parent,i) < 0)
-                return -1;
+        __read_parent(node);
+        while(node && node->item->nrkeys > BTREE_KEY_MAX_TEST) {
+              if(is_root(sb,node)) 
+              {
+                
+              } else {
+                //find the proper position from node's parent
+                i = __binary_search(node->parent,node->item->key[BTREE_LEFT].ino,&found);
+                assert(!found && i >= 0);
+                node->parent->ptrs[i] = node;
+                //split the internal node
+                if(__do_btree_split_internal(sb,node,node->parent,i) < 0)
+                    return -1;
+                __read_parent(node);
+            }
+            
         }
         //insert the key
         return __do_btree_insert2(sb,off,flags,tmp);
@@ -664,9 +673,9 @@ static int __do_btree_split_leaf(struct stp_btree_info *sb,struct stp_bnode *roo
     i++;
   }
 
-  if(!node->parent) 
+  //  if(!node->parent) 
   {
-      node->parent = root->parent;
+      //  node->parent = root->parent;
       if(!is_root(sb,root)) {
           assert(root->parent);
           node->item->level = root->parent->item->level;
@@ -751,9 +760,10 @@ static int __do_btree_split_leaf(struct stp_btree_info *sb,struct stp_bnode *roo
  * / \  /  \
  *     20  29
  *    / \ /  \
+ * left(t-1) right(t)  mid(t)
  */
 #define BTREE_INTERNAL_LEFT (BTREE_DEGREE_TEST - 1)
-#define BTREE_INTERNAL_RIGHT (BTREE_DEGREE_TEST - 1)
+#define BTREE_INTERNAL_RIGHT (BTREE_DEGREE_TEST)
 
 static  int __do_btree_split_internal(struct stp_btree_info *sb,struct stp_bnode *root,struct stp_bnode *node,int pos)
 {
@@ -938,10 +948,10 @@ static void do_btree_super_debug_root(const struct stp_btree_info *sb)
     node = sb->root;
     while(f <= b && node) 
     {
-        printf("node:%p,nrkeys:%u,ptrs:%u,level:%u,flags:%d,parent:%p\n",node,node->item->nrkeys,node->item->nrptrs,\
+        printf("node:%p,ptrs:%u,level:%u,flags:%d,parent:%p\n",node,node->item->nrptrs,\
                node->item->level,node->item->flags,node->parent);
-        printf("ino:(%llu - %llu),offset:%llu,len:%llu\n",node->item->key[0].ino,node->item->key[node->item->nrkeys-1].ino,\
-               node->item->location.offset,node->item->location.count);
+        printf("ino:(%llu - %llu),nrkeys:%u,offset:%llu,len:%llu\n",node->item->key[0].ino,node->item->key[node->item->nrkeys-1].ino,\
+               node->item->nrkeys,node->item->location.offset,node->item->location.count);
 
         for(i = 0;i<node->item->nrptrs;i++)
         {
