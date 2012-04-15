@@ -359,8 +359,8 @@ static int __binary_search(struct stp_bnode *item,u64 ino,int *found)
         } else 
             *found = 1;
         //if(i == BTREE_KEY_MAX_TEST) i = BTREE_KEY_MAX_TEST - 1;
-        printf("%s:%d,pos:%d,nrkey:%d,item[0].ino:%llu,item[%d]:%llu,found:%d,search:%llu\n",__FUNCTION__,__LINE__,i,item->item->nrkeys,\
-               item->item->key[0].ino,i,item->item->key[i==BTREE_KEY_MAX_TEST?i-1:i].ino,*found,ino);
+        printf("%s:%d,pos:%d,nrkey:%d,item[0].ino:%llu,last,item[%d]:%llu,found:%d,search:%llu\n",__FUNCTION__,__LINE__,\
+               i,item->item->nrkeys,item->item->key[0].ino,i,item->item->key[i==BTREE_KEY_MAX_TEST?i-1:i].ino,*found,ino);
     }
     
     return i;
@@ -569,10 +569,8 @@ static int __do_btree_insert2(struct stp_btree_info *sb,const struct stp_bnode_o
         //return -1;
         //it must be considered situation:
         //the node must be leaf,because __do_btree_search must reach the leaf node
-        struct stp_bnode *tmp;
         int pos;
         pos = i;
-        tmp = node->parent;//fasten search when recording current position
         __read_parent(node);
         //find the proper position from node's parent
         i = __binary_search(node->parent,node->item->key[BTREE_LEFT].ino,&found);
@@ -584,27 +582,33 @@ static int __do_btree_insert2(struct stp_btree_info *sb,const struct stp_bnode_o
        
         //insert key
         sb->ops->debug_btree(sb);
+        //        printf("%s:%d,ino[0]:%p,ino[%d]:%llu\n",__FUNCTION__,__LINE__,node,node->item->key[0].ino, \
+               node->item->key[node->item->nrkeys - 1].ino);
         //Does it's parent is full? !!problem in here
         node = node->parent;
         __read_parent(node);
         while(node && node->item->nrkeys > BTREE_KEY_MAX_TEST) {
+            //split the root node
               if(is_root(sb,node)) 
               {
-                
-              } else {
-                //find the proper position from node's parent
-                i = __binary_search(node->parent,node->item->key[BTREE_LEFT].ino,&found);
-                assert(!found && i >= 0);
-                node->parent->ptrs[i] = node;
-                //split the internal node
-                if(__do_btree_split_internal(sb,node,node->parent,i) < 0)
-                    return -1;
-                __read_parent(node);
-            }
-            
+                  struct stp_bnode * bnode;
+                  if(!(bnode = sb->ops->allocate(sb,0))) return -1;
+                  node->parent = bnode;
+                  //set_root(sb,bnode);
+                  printf("It's root in node man\n");   
+              }
+              //find the proper position from node's parent
+              i = __binary_search(node->parent,node->item->key[BTREE_LEFT].ino,&found);
+              assert(!found && i >= 0);
+              node->parent->ptrs[i] = node;
+              //split the internal node
+              if(__do_btree_split_internal(sb,node,node->parent,i) < 0)
+                  return -1;
+              __read_parent(node);
+              node = node->parent;
         }
         //insert the key
-        return __do_btree_insert2(sb,off,flags,tmp);
+        return __do_btree_insert2(sb,off,flags,node->parent);
     }
     
     //    sb->ops->debug(node);
@@ -633,6 +637,7 @@ static void __copy_bnode_off(struct stp_bnode_off *dest,const struct stp_bnode_o
   dest->offset = src->offset;
 }
 
+
 /**
   * 
   * split root into two part:root(left t-1),node(parent),_new(right t)
@@ -655,7 +660,7 @@ static int __do_btree_split_leaf(struct stp_btree_info *sb,struct stp_bnode *roo
   struct stp_bnode *_new;
   struct stp_bnode_off off;
 
-  printf("%s:%d,nrkeys:%d,ino:%llu\n",__FUNCTION__,__LINE__,
+  printf("%s:%d,nrkeys:%d,ino[0]:%llu\n",__FUNCTION__,__LINE__,
          root->item->nrkeys,root->item->key[0].ino);
   assert(root->item->nrkeys == BTREE_KEY_MAX_TEST);
   
@@ -666,6 +671,7 @@ static int __do_btree_split_leaf(struct stp_btree_info *sb,struct stp_bnode *roo
   while(i < BTREE_KEY_MAX_TEST) {
     __copy_bnode_key(&_new->item->key[i - BTREE_LEFT],&root->item->key[i]);
     __copy_bnode_off(&_new->item->ptrs[i - BTREE_LEFT],&root->item->ptrs[i]);
+    //__set_header(&_)
     memset(&root->item->key[i],0,sizeof(root->item->key[i]));
     memset(&root->item->ptrs[i],0,sizeof(root->item->ptrs[i]));
     _new->ptrs[i - BTREE_LEFT] = root->ptrs[i];
