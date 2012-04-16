@@ -2,13 +2,13 @@
 /* config.h.in.  Generated from configure.in by autoheader.  */
 
 /* Define to 1 if you have the `calloc' function. */
-#define HAVE_CALLOC 1
+/* #undef HAVE_CALLOC */
 
 /* Define to 1 if you have the <fcntl.h> header file. */
 #define HAVE_FCNTL_H 1
 
 /* Define to 1 if you have the `free' function. */
-#define HAVE_FREE 1
+/* #undef HAVE_FREE */
 
 /* Define to 1 if you have the `ftruncate' function. */
 #define HAVE_FTRUNCATE 1
@@ -26,7 +26,7 @@
 #define HAVE_MEMORY_H 1
 
 /* Define to 1 if you have the `memset' function. */
-#define HAVE_MEMSET 1
+/* #undef HAVE_MEMSET */
 
 /* Define to 1 if you have a working `mmap' system call. */
 #define HAVE_MMAP 1

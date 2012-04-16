@@ -229,9 +229,10 @@ int stp_creat(STP_FILE file,const char *filename)
 {
   struct stp_fs_info *fs;
   struct stp_btree_info *tree;
-  static u64 ino = 1;
+  u64 ino = random();
   struct stp_bnode_off off;
   u8 flags;
+  static u32 num = 1;
   
   if(!file) {
       stp_errno = STP_INVALID_ARGUMENT;
@@ -245,13 +246,16 @@ int stp_creat(STP_FILE file,const char *filename)
       stp_errno =  STP_INDEX_CANT_BE_WRITER;
       return -1;
   }
-  off.ino = ino++;
+  off.ino = ino;
   off.flags = 0;
-  off.len = 100;
-  off.offset = 20;
-  printf("%s,ino:%llu\n",__FUNCTION__,off.ino);
+  off.len = ino;
+  off.offset = ino;
+  ino ++;
+  printf("%s,ino:%llu,num:%d\n",__FUNCTION__,off.ino,num);
   //return 0;
   flags =  tree->ops->insert(tree,&off,BTREE_OVERFLAP);
+  printf("%s,after create ino:%llu,num:%d\n",__FUNCTION__,off.ino,num);
+  num++;
   tree->ops->debug_btree(tree);
   return flags;
 }

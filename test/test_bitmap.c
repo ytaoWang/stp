@@ -41,7 +41,14 @@ int main_testbitmap(int argc,char *argv[])
 int main(int argc,char *argv[]) 
 {
     STP_FILE file;
-    u64 ino;
+    u64 ino,num;
+    
+    if(argc !=2 ) {
+        fprintf(stderr,"usage:%s num\n",argv[0]);
+        return -1;
+    }
+    
+    num = atoi(argv[1]);
     
     if(!(file = stp_open("stp.fs","stp.index",STP_FS_RDWR|STP_FS_CREAT)))
     {
@@ -53,7 +60,7 @@ int main(int argc,char *argv[])
      * test b+ tree insert 
      **/
     ino = 1;
-    while(ino <= 8) 
+    while(ino <= num) 
     {
         //printf("create file ino:%llu\n",ino);
         if(stp_creat(file,"test1") < 0) {
