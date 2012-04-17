@@ -203,6 +203,10 @@ int stp_close(STP_FILE pfile)
     struct stp_fs_info * fs = pfile->fs;
     struct stp_btree_info *btree = pfile->tree;
     
+    printf("%s:%d b+ tree:\n",__FUNCTION__,__LINE__);
+    //btree->ops->debug_btree(btree);
+    
+
     fs->ops->destroy(fs);
     fsync(fs->fd);
     munmap(fs->super,FS_SUPER_SIZE);
@@ -256,6 +260,6 @@ int stp_creat(STP_FILE file,const char *filename)
   flags =  tree->ops->insert(tree,&off,BTREE_OVERFLAP);
   printf("%s,after create ino:%llu,num:%d\n",__FUNCTION__,off.ino,num);
   num++;
-  tree->ops->debug_btree(tree);
+  //  tree->ops->debug_btree(tree);
   return flags;
 }

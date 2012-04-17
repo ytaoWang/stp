@@ -51,7 +51,7 @@ u32  __bitmap_alloc(u32 *bitmap,off_t start,size_t len)
             #endif
             return k*BITS_PER_U32 + BITS_PER_U32 - pos - 1;
         }
-        else printf("pos:%d,bitmap[%d]:%x\n",pos,k,bitmap[k]);
+        //        else printf("pos:%d,bitmap[%d]:%x\n",pos,k,bitmap[k]);
     }
     
     s2 = __get_remain(start,len) + 1;
