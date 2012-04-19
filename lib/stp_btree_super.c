@@ -27,6 +27,8 @@ static umem_cache_t *btree_bnode_item_slab = NULL; //size:2048,dir_item:140
 
 static void __btree_node_destroy(struct stp_bnode *node);
 static int __btree_delete_entry(struct stp_btree_info *sb,struct stp_bnode **hist,int size,int index);
+static inline int is_root(const struct stp_btree_info *sb,const struct stp_bnode *node);
+static inline void set_root(struct stp_btree_info *sb,struct stp_bnode *node);
 
 
 static struct stp_bnode * __get_btree_bnode(struct stp_btree_info * sb)
@@ -69,7 +71,7 @@ static int __btree_init_root(struct stp_btree_info *sb,const struct stp_header *
         sb->super->root.nritems = node->item->location.nritems;
     }
     
-    sb->root = node;
+    set_root(sb,node);
 
     //    printf("%s:%d,flags:%d\n",__FUNCTION__,__LINE__,sb->root->item->flags);
 
@@ -288,13 +290,13 @@ static int do_btree_super_read(struct stp_btree_info *sb,struct stp_bnode * bnod
 static int do_btree_super_sync(struct stp_btree_info *sb)
 {
     return -1;
-}
+} 
 
 static int do_btree_super_write(struct stp_btree_info * sb,struct stp_bnode * bnode)
 {
     int res;
 
-    if(!bnode->item->nrkeys) {
+    if(!bnode->item->nrkeys && !is_root(sb,bnode)) {
         fprintf(stderr,"[WARNING]:bnode:%p is empty!\n",bnode);
         return 0;
     }
@@ -404,7 +406,9 @@ static struct stp_bnode * __do_btree_search(struct stp_bnode *root,u64 ino,int *
     
     node = root;
     *f = 0;
-      
+    
+    if(!node) return NULL;
+    
     do{
       i = __binary_search(node,ino,&found);
 
@@ -813,19 +817,26 @@ static int do_btree_super_insert(struct stp_btree_info *sb,const struct stp_bnod
 
 static struct stp_bnode* __btree_search_hist(const struct stp_btree_info *sb,u64 ino,struct stp_bnode **hist,int *size,int *f,int *idx)
 {
-    struct stp_bnode *node,*last;
-    int i,found;
+    struct stp_bnode *node,*last,*n;
+    int i,found,len;
     
     *size = 0;
-    
-    if(!hist)
-        return __do_btree_search(sb->root,ino,idx,f);
+    *f = 0;
     
     node = sb->root;
+    n = NULL;
+    
+    if(!node) return NULL;
+
+    if(!hist)
+        return __do_btree_search(sb->root,ino,idx,f);
     
     do{
         i = __binary_search(node,ino,&found);
         if(found && !(node->item->flags & BTREE_ITEM_LEAF)) {
+            n = node;
+            len = *size;
+            *idx = i;
             i++;
         }
         
@@ -835,9 +846,15 @@ static struct stp_bnode* __btree_search_hist(const struct stp_btree_info *sb,u64
         __read_ptrs(node,i);
         node = node->ptrs[i];
     } while(node);
-    
-    *f = found;
-    *idx = i;
+    /*
+    if(!found && n) { //find the key in internal node but miss in leaf node
+        *size = len;
+        found = 1;
+        return n;
+        } else { */
+        *f = found;
+        *idx = i;
+        //    }
     
     return last;
 }
@@ -1000,7 +1017,7 @@ static int colaescence_nodes(struct stp_btree_info *sb,struct stp_bnode *node,st
          * one more than the number of keys
          */
         __copy_bnode_off(&neighbor->item->ptrs[i],&node->item->ptrs[j]);
-        node->ptrs[i] = node->ptrs[j];
+        neighbor->ptrs[i] = node->ptrs[j];
         node->item->nrptrs = node->item->nrkeys + 1;
         neighbor->item->nrptrs = neighbor->item->nrkeys + 1;
         
@@ -1379,6 +1396,9 @@ static int do_btree_super_rm(struct stp_btree_info *sb,u64 ino)
 static int do_btree_super_destroy(struct stp_btree_info *sb)
 {
     struct stp_bnode *bnode,*next;
+    
+    printf("%s:%d,before entry_del,root:%p\n",__func__,__LINE__,sb->root);
+    
     /*destroy bnode and flush it into disk*/
     list_for_each_entry_del(bnode,next,&sb->dirty_list,dirty) {
         sb->ops->write(sb,bnode);
@@ -1436,7 +1456,7 @@ static void do_btree_super_debug_root(const struct stp_btree_info *sb)
     f = 0;
     b = 0;
     node = sb->root;
-    while(f <= b && node) 
+    while(f <= b && node && node->item->nrkeys !=0 ) 
     {
         printf("node:%p,ptrs:%u,level:%u,flags:%d,parent:%p,parent offset:%llu\n",node,node->item->nrptrs,\
                node->item->level,node->item->flags,node->parent,node->item->parent.offset);
