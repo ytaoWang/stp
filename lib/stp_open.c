@@ -212,7 +212,7 @@ int stp_close(STP_FILE pfile)
     munmap(fs->super,FS_SUPER_SIZE);
     close(fs->fd);
     free(fs);
-    
+    btree->ops->debug_btree(btree);
     btree->ops->destroy(btree);
     printf("__function__:%s,flags:%d,nrkeys:%d\n",__FUNCTION__,btree->super->root.flags,btree->super->nritems);
     fsync(btree->fd);
@@ -257,7 +257,7 @@ int stp_creat(STP_FILE file,const char *filename)
   ino ++;
   printf("%s,ino:%llu,num:%d\n",__FUNCTION__,off.ino,num);
   //return 0;
-  //  flags =  tree->ops->insert(tree,&off,BTREE_OVERFLAP);
+  flags =  tree->ops->insert(tree,&off,BTREE_OVERFLAP);
   printf("%s,after create ino:%llu,num:%d\n",__FUNCTION__,off.ino,num);
   num++;
   //tree->ops->debug_btree(tree);
@@ -291,7 +291,7 @@ int stp_unlink(STP_FILE file,const char *filename)
   printf("%s,after delete ino:%llu,num:%llu\n",__FUNCTION__,ino,num);
   num ++;
   ino --;
-  tree->ops->debug_btree(tree);
+  //tree->ops->debug_btree(tree);
 
   return flags;
 }

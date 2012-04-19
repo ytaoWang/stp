@@ -12,7 +12,7 @@
 #include "list.h"
 #include "bitmap.h"
 
-#define BTREE_DEGREE_TEST  2
+#define BTREE_DEGREE_TEST  BTREE_DEGREE
 #define BTREE_LEFT (BTREE_DEGREE_TEST - 1)
 #define BTREE_RIGHT (BTREE_DEGREE_TEST)
 #define BTREE_KEY_MAX_TEST (KEY(BTREE_DEGREE_TEST))
@@ -1452,7 +1452,7 @@ static void do_btree_super_debug_root(const struct stp_btree_info *sb)
     struct stp_bnode *n[sb->super->nritems];
     struct stp_bnode *node;
     
-    printf("-----------function:%s,root:%p,active:%u\n",__FUNCTION__,sb->root,sb->active);
+    printf("-----------function:%s,root:%p,active:%u,root len:%d\n",__FUNCTION__,sb->root,sb->active,sb->root?sb->root->item->nrkeys:0);
     f = 0;
     b = 0;
     node = sb->root;
