@@ -233,7 +233,7 @@ int stp_creat(STP_FILE file,const char *filename)
 {
   struct stp_fs_info *fs;
   struct stp_btree_info *tree;
-  u64 ino = random();
+  static u64 ino = 1;
   struct stp_bnode_off off;
   u8 flags;
   static u32 num = 1;
@@ -260,6 +260,38 @@ int stp_creat(STP_FILE file,const char *filename)
   flags =  tree->ops->insert(tree,&off,BTREE_OVERFLAP);
   printf("%s,after create ino:%llu,num:%d\n",__FUNCTION__,off.ino,num);
   num++;
-  //  tree->ops->debug_btree(tree);
+  tree->ops->debug_btree(tree);
+  return flags;
+}
+
+
+int stp_unlink(STP_FILE file,const char *filename)
+{
+    struct stp_fs_info *fs;
+    struct stp_btree_info *tree;
+    static u64 ino = 1;
+    static u64 num = 1;
+    u8 flags;
+    
+    if(!file) {
+      stp_errno = STP_INVALID_ARGUMENT;
+      return -1;
+  }
+
+  fs = file->fs;
+  tree = file->tree;
+  
+  if(!(tree->mode & STP_FS_RDWR)) {
+      stp_errno =  STP_INDEX_CANT_BE_WRITER;
+      return -1;
+  }
+  tree->ops->debug_btree(tree);
+  printf("%s,before delete ino:%llu,num:%llu\n",__FUNCTION__,ino,num);
+  flags = tree->ops->rm(tree,ino);
+  printf("%s,after delete ino:%llu,num:%llu\n",__FUNCTION__,ino,num);
+  num ++;
+  ino ++;
+  tree->ops->debug_btree(tree);
+
   return flags;
 }

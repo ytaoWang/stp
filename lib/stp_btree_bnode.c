@@ -32,7 +32,7 @@ static int do_bnode_destroy(struct stp_bnode * node)
     return -1;
 }
 
-static struct stp_bnode* do_bnode_search(struct stp_bnode *node,u64 ino)
+static struct stp_bnode* do_bnode_search(struct stp_bnode *node,u64 ino,struct stp_bnode_off *off)
 {
     return NULL;
 }

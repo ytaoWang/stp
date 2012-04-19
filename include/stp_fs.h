@@ -44,7 +44,7 @@ struct stp_inode_item {
     u8 nlink;
     u32 uid;
     u32 gid;
-    u8 mode;
+    u32 mode;
     u16 flags;
     u64 atime;
     u64 ctime;
@@ -52,7 +52,7 @@ struct stp_inode_item {
     u64 otime;
     u64 transid;
     u32 nritem;//file-item number dir_item 
-    u8 padding[35];
+    u8 padding[32];
 } __attribute__((__packed__));
 
 /*
@@ -202,7 +202,7 @@ struct stp_bnode_operations {
     int (*insert)(struct stp_bnode * node,u64 ino,size_t start,off_t offset);
     int (*update)(struct stp_bnode * node,u64 ino,size_t start,off_t offset);
     int (*delete)(struct stp_bnode * node,u64 ino);
-    int (*search)(struct stp_bnode *node,u64 ino,struct stp_bnode_off *off);
+    struct stp_bnode* (*search)(struct stp_bnode *node,u64 ino,struct stp_bnode_off *off);
     int (*destroy)(struct stp_bnode * node);
 };
     
@@ -265,6 +265,7 @@ struct stp_btree_operations {
     void (*debug_btree)(const struct stp_btree_info *);
     int (*insert)(struct stp_btree_info *,const struct stp_bnode_off *,u8);
     int (*rm)(struct stp_btree_info *,u64 ino);
+    int (*free)(struct stp_btree_info *,struct stp_bnode *);
     int (*destroy)(struct stp_btree_info *);
 };
 

@@ -17,10 +17,17 @@
 #define BTREE_RIGHT (BTREE_DEGREE_TEST)
 #define BTREE_KEY_MAX_TEST (KEY(BTREE_DEGREE_TEST))
 #define BTREE_CHILD_MAX_TEST (CHILD(BTREE_DEGREE_TEST))
+#define BTREE_KEY_MIN_TEST (MIN_KEY(BTREE_DEGREE_TEST))
+#define BTREE_CHILD_MIN_TEST (MIN_CHILD(BTREE_DEGREE_TEST))
+#define BTREE_MAX_LEVEL 64
 
 static umem_cache_t *btree_bnode_slab = NULL; //size:32,stp_inode_item:128,stp_inode:68
 //can't allocate memory for btree_bnode_item_slab
 static umem_cache_t *btree_bnode_item_slab = NULL; //size:2048,dir_item:140
+
+static void __btree_node_destroy(struct stp_bnode *node);
+static int __btree_delete_entry(struct stp_btree_info *sb,struct stp_bnode **hist,int size,int index);
+
 
 static struct stp_bnode * __get_btree_bnode(struct stp_btree_info * sb)
 {
@@ -287,6 +294,11 @@ static int do_btree_super_write(struct stp_btree_info * sb,struct stp_bnode * bn
 {
     int res;
 
+    if(!bnode->item->nrkeys) {
+        fprintf(stderr,"[WARNING]:bnode:%p is empty!\n",bnode);
+        return 0;
+    }
+    
     assert(bnode->item != NULL);
     printf("%s:%d,count:%llu,offset:%llu,ino:%llu,node:%p\n",__FUNCTION__,__LINE__,bnode->item->location.count, \
            bnode->item->location.offset,bnode->item->key[0].ino,bnode);
@@ -391,7 +403,7 @@ static struct stp_bnode * __do_btree_search(struct stp_bnode *root,u64 ino,int *
     int i,found;
     
     node = root;
-
+    *f = 0;
       
     do{
       i = __binary_search(node,ino,&found);
@@ -425,7 +437,7 @@ static int do_btree_super_search(struct stp_btree_info * sb,u64 ino,struct stp_b
     struct stp_bnode *node;
     int idx,found;
 
-    
+
     node = __do_btree_search(sb->root,ino,&idx,&found);
     if(!found) {
         stp_errno = STP_INDEX_ITEM_NO_FOUND;
@@ -495,11 +507,15 @@ static inline int is_root(const struct stp_btree_info *sb,const struct stp_bnode
 static inline void set_root(struct stp_btree_info *sb,struct stp_bnode *node)
 {
     sb->root = node;
+    if(node) {
     sb->super->root.offset = node->item->location.offset;
     sb->super->root.count = node->item->location.count;
     sb->super->root.flags = node->item->location.flags;
     sb->super->root.nritems = node->item->location.nritems;
     node->parent = NULL;
+    } else 
+        memset(&sb->super->root,0,sizeof(struct stp_bnode_item));
+    
 }
 
 static inline void __copy_item(struct stp_btree_info *sb,struct stp_bnode *node,const struct stp_bnode_off *off,int idx)
@@ -761,6 +777,11 @@ static int __do_btree_insert(struct stp_btree_info *sb,const struct stp_bnode_of
   if(root->item->nrkeys == BTREE_KEY_MAX_TEST) {
     
     if(!(node = sb->ops->allocate(sb,0))) return -1;
+    if(root->item->level >= BTREE_MAX_LEVEL) {
+        stp_errno = STP_INDEX_MAX_LEVEL;
+        return -1;
+    }
+    
     //copy the last left key and the first right key into node(in split)
     if(__do_btree_split_child(sb,node,root,0)<0)
         return -1;
@@ -790,9 +811,569 @@ static int do_btree_super_insert(struct stp_btree_info *sb,const struct stp_bnod
     return  __do_btree_insert(sb,off,flags);
 }
 
+static struct stp_bnode* __btree_search_hist(const struct stp_btree_info *sb,u64 ino,struct stp_bnode **hist,int *size,int *f,int *idx)
+{
+    struct stp_bnode *node,*last;
+    int i,found;
+    
+    *size = 0;
+    
+    if(!hist)
+        return __do_btree_search(sb->root,ino,idx,f);
+    
+    node = sb->root;
+    
+    do{
+        i = __binary_search(node,ino,&found);
+        if(found && !(node->item->flags & BTREE_ITEM_LEAF)) {
+            i++;
+        }
+        
+        hist[(*size)++] = node;
+        last = node;
+        if(node->item->flags & BTREE_ITEM_LEAF) break;
+        __read_ptrs(node,i);
+        node = node->ptrs[i];
+    } while(node);
+    
+    *f = found;
+    *idx = i;
+    
+    return last;
+}
+
+static int do_btree_super_free(struct stp_btree_info *sb,struct stp_bnode *node)
+{
+    if(!node) return 0;
+    
+    pthread_mutex_lock(&sb->mutex);
+    
+    if(!list_empty(&node->dirty)) {
+        sb->ops->write(sb,node);
+        list_del_element(&node->dirty);
+    }
+    
+    list_del_element(&node->list);
+    sb->active--;
+    if(node->flags & STP_INDEX_BNODE_CREAT) 
+        free(node->item);
+
+    umem_cache_free(btree_bnode_slab,node);
+    
+    pthread_mutex_unlock(&sb->mutex);
+    
+    return 0;
+}
+
+/*
+ * remove entry (idx) from node
+ */
+static int __remove_entry_from_node(struct stp_btree_info *sb,struct stp_bnode *node,int idx)
+{
+    int i;
+    
+    printf("%s(%d) ino:%llu,nrkeys:%d,node:%p,idx:%d,nrkeys:%d\n",__FUNCTION__,__LINE__,
+           node->item->key[0].ino,node->item->nrkeys,node,idx,node->item->nrkeys);
+    
+    //move forward one position for child key
+    //problem in here
+    for(i = idx + 1;i < node->item->nrkeys;i++) 
+        __copy_bnode_key(&node->item->key[i-1],&node->item->key[i]);
+    if(!(node->item->flags & BTREE_ITEM_LEAF)) {
+        for(i = idx + 2;i<node->item->nrptrs;i++)
+        {   
+            __copy_bnode_off(&node->item->ptrs[i-1],&node->item->ptrs[i]);
+            node->ptrs[i-1] = node->ptrs[i];
+        }   
+    } else {
+        for(i = idx + 1;i < node->item->nrptrs; i++)
+            __copy_bnode_off(&node->item->ptrs[i-1],&node->item->ptrs[i]);
+    }
+    
+    
+    /*
+    __copy_bnode_off(&node->item->ptrs[i-1],&node->item->ptrs[i]);
+    node->ptrs[i-1] = node->ptrs[i];
+    */
+    node->item->nrkeys --;
+    node->item->nrptrs = node->item->nrkeys + 1;
+    
+    list_move(&sb->dirty_list,&node->dirty);
+    node->flags |= STP_INDEX_BNODE_DIRTY;
+    
+    return 0;
+}
+
+/*
+ * when node's key is too small,merge it with neighbor node
+ * hist:parent node pointer array
+ * k_prime_index k_prime position in parent
+ * k_prime: parent key between neighbor
+ * neighbor_index:indicates the position of neighbor(left),if it's -1,which means that the neighbor is right of node.
+ * neighbor:node's neighbor
+ */
+static int colaescence_nodes(struct stp_btree_info *sb,struct stp_bnode *node,struct stp_bnode *neighbor,int neighbor_index,int k_prime_index,const struct stp_bnode_key *k_prime,struct stp_bnode **hist,int size)
+{
+    int i,j,neighbor_insertion_index,n_start,n_end,idx;
+    struct stp_bnode *tmp;
+    struct stp_bnode_key new_k_prime;
+    int split,ret;
+
+    /*
+     * Swap neighbor with node if node is on the extreme left and neighbor is to its right
+     */
+    
+    printf("function:%s,file:%s,node:%p,neighbor:%p,parent:%p\n",__FUNCTION__,__FILE__,node,neighbor,hist[size]);
+
+    if(neighbor_index == -1) {
+        tmp = node;
+        node = neighbor;
+        neighbor = tmp;
+    }
+    
+    ret = 1;
+    
+    /*
+     * Starting point in the neighbor for copying keys and pointers from node
+     * Recall that node and neighbor have swapped places in the special case
+     * of node being a leftmost child
+     */
+    
+    neighbor_insertion_index = neighbor->item->nrkeys;
+    
+    /*
+     * Nonleaf nodes may sometimes need to remain split,
+     * if the insertion of k_prime would cause the resulting
+     * single coalesced node to exceed the BTREE_KEY_MAX,
+     * The variable split always false for leaf node
+     * and only sometimes set true for nonleaf node
+     */
+    split = 0;
+    
+    /*
+     * Case: nonleaf node.
+     * Append k_prime and the following pointer.
+     * If there is room in the neighbor,append all pointers
+     * and keys from the neighbor.
+     * Otherwise,append only MAX-2 keys and MAX - 1 pointers.
+     */
+    
+    if(!(node->item->flags & BTREE_ITEM_LEAF)) {
+        
+        /*
+         * Append k_prime
+         */
+        __copy_bnode_key(&neighbor->item->key[neighbor_insertion_index],k_prime);
+        neighbor->item->nrkeys ++;
+        
+        //neighbor->item->nrptrs = neighbor->item->nrkeys + 1;
+        /*
+         * Case (default): there is room for all of n's keys and pointers 
+         * in the neighbor after appending k_prime
+         */
+        n_end = node->item->nrkeys;
+        
+        /*
+         * Case (special): k cannot fit with all the other keys and pointers 
+         * into one coalesced node.
+         */
+        
+        n_start = 0;
+        if(n_end + neighbor->item->nrkeys > BTREE_KEY_MAX_TEST) {
+            split = 1;
+            //problem in here?
+            n_end = BTREE_KEY_MAX_TEST - neighbor->item->nrkeys;
+        }
+
+        for(i = neighbor_insertion_index + 1,j=0;j < n_end;i++,j++)
+        {
+            __copy_bnode_key(&neighbor->item->key[i],&node->item->key[j]);
+            __copy_bnode_off(&neighbor->item->ptrs[i],&node->item->ptrs[j]);
+            neighbor->ptrs[i] = node->ptrs[j];
+            neighbor->item->nrkeys ++;
+            node->item->nrkeys --;
+            n_start ++;
+        }
+        
+        /*
+         * The number of pointers is always 
+         * one more than the number of keys
+         */
+        __copy_bnode_off(&neighbor->item->ptrs[i],&node->item->ptrs[j]);
+        node->ptrs[i] = node->ptrs[j];
+        node->item->nrptrs = node->item->nrkeys + 1;
+        neighbor->item->nrptrs = neighbor->item->nrkeys + 1;
+        
+        /*
+         * If the nodes are still split ,remove the first key from n
+         */
+        
+        if(split) {
+            __copy_bnode_key(&new_k_prime,&node->item->key[n_start]);
+            for(i = 0,j = n_start + 1; i < node->item->nrkeys;i++,j++) {
+                __copy_bnode_key(&node->item->key[i],&node->item->key[j]);
+                __copy_bnode_off(&node->item->ptrs[i],&node->item->ptrs[j]);
+                node->ptrs[i] = node->ptrs[j];
+            }
+            __copy_bnode_off(&node->item->ptrs[i],&node->item->ptrs[j]);
+            node->ptrs[i] = node->ptrs[j];
+            node->item->nrkeys --;
+            node->item->nrptrs = node->item->nrkeys + 1;
+        }
+        //else {
+            //modify parent's ptrs because of split
+            
+        // }
+        
+        
+        //All children must now point up to the same parent
+        
+    } else {
+        int len;
+        
+        len = node->item->nrkeys;
+        
+        for(i = neighbor_insertion_index,j = 0;j < len;i++,j++)
+        {
+            __copy_bnode_key(&neighbor->item->key[i],&node->item->key[j]);
+            __copy_bnode_off(&neighbor->item->ptrs[i],&node->item->ptrs[j]);
+            neighbor->ptrs[i] = node->ptrs[j];
+            neighbor->item->nrkeys ++;
+            node->item->nrkeys --;
+        }
+        
+        // link together with leaf
+        __copy_bnode_off(&neighbor->item->ptrs[i],&node->item->ptrs[j]);
+        neighbor->item->nrptrs = neighbor->item->nrkeys + 1;
+        node->item->nrptrs = node->item->nrkeys + 1;
+        
+    }
+    
+    if(!split) {
+        ret = __btree_delete_entry(sb,hist,size+1,k_prime_index);
+        
+        //modify parent's ref move forward one further
+        /*
+        assert(hist[size]->ptrs[k_prime_index+1]==node);
+        for(i = k_prime_index+2; i < hist[size]->item->nrptrs;i++)
+        {
+            __copy_bnode_off(&hist[size]->item->ptrs[i-1],&hist[size]->item->ptrs[i]);
+            hist[size]->ptrs[i] = hist[size]->ptrs[i-1];
+        }
+        */
+        __btree_node_destroy(node);
+    } else {
+        for(i = 0;i< hist[size]->item->nrkeys;i++)
+            if(hist[size]->ptrs[i+1] == node) {
+                __copy_bnode_key(&hist[size]->item->key[i],&new_k_prime);
+                break;
+            }
+    }
+
+    return ret;
+}
+
+static void __btree_node_destroy(struct stp_bnode *node)
+{
+    struct stp_btree_info *sb;
+    u32 off;
+    
+    sb = node->tree;
+    
+    printf("%s(%d):ino[0]:%llu,node:%p,nrkeys:%d\n",__func__,__LINE__,node->item->key[0].ino,node,node->item->nrkeys);
+    
+    assert(node->item->nrkeys == 0);
+    off = (node->item->location.offset - BTREE_SUPER_SIZE)/sizeof(struct stp_bnode_item);
+    
+    bitmap_clear(sb->super->bitmap,off);
+    
+    list_del_element(&node->list);
+    list_del_element(&node->dirty);
+    
+    if(node->flags & STP_INDEX_BNODE_CREAT)
+        free(node->item);
+    else
+        munmap(node->item,sizeof(struct stp_bnode_item));
+    sb->active--;
+
+    umem_cache_free(btree_bnode_slab,node);
+}
+
+/*
+ * Redistributes entries between two nodes when one has become too small
+ * after deletion but its neighbor is too big to 
+ * append the small node's entries without exceeding 
+ * the maximum
+ */
+
+static int redistribute_nodes(struct stp_btree_info *sb,struct stp_bnode *node,struct stp_bnode *neighbor,int neighbor_index,int k_prime_index,const struct stp_bnode_key *k_prime,struct stp_bnode **hist,int size)
+{
+    int i;
+    
+    printf("%s:%d neighbor:%p,neighbor_index:%d,k_prime_index:%d,k_prime:%llu\n",__func__,__LINE__,neighbor,neighbor_index,k_prime_index,k_prime->ino);
+    //borrow from sibling
+    if(neighbor_index != -1) {
+        
+        __copy_bnode_off(&node->item->ptrs[node->item->nrptrs],&node->item->ptrs[node->item->nrptrs - 1]);
+        node->ptrs[node->item->nrptrs] = node->ptrs[node->item->nrptrs - 1];
+        
+        for(i = node->item->nrkeys; i > 0;i--) 
+        {
+            __copy_bnode_key(&node->item->key[i],&node->item->key[i-1]);
+            __copy_bnode_off(&node->item->ptrs[i],&node->item->ptrs[i-1]);
+            node->ptrs[i] = node->ptrs[i-1];
+        }
+        
+        //move the neighbor's last ptr into node
+        //move the node's k_prime into node
+        //move the neighbor's last key into parent,and replace k_prime with last key
+        if(!(node->item->flags & BTREE_ITEM_LEAF)) {
+            node->ptrs[0] = neighbor->ptrs[neighbor->item->nrkeys];
+            __copy_bnode_off(&node->item->ptrs[0],&neighbor->item->ptrs[neighbor->item->nrkeys]);
+            __copy_bnode_key(&node->item->key[0],k_prime);
+            __copy_bnode_key(&hist[size]->item->key[k_prime_index],&neighbor->item->key[neighbor->item->nrkeys - 1]);
+        } else {
+            //move the neighbor's last key into node and parent
+            node->ptrs[0] = neighbor->ptrs[neighbor->item->nrptrs - 1];
+            __copy_bnode_off(&node->item->ptrs[0],&neighbor->item->ptrs[neighbor->item->nrptrs - 1]);
+            __copy_bnode_key(&node->item->key[0],&neighbor->item->key[neighbor->item->nrkeys - 1]);
+            __copy_bnode_key(&hist[size]->item->key[k_prime_index],&node->item->key[0]);
+            //link child together
+            __copy_bnode_off(&node->item->ptrs[node->item->nrkeys-1],&node->item->ptrs[node->item->nrkeys]);
+        }
+    } else {
+        /*
+         * Case: node is the leftmost child.
+         * Take a key-pointer pair from the neighbor to the right
+         * Move the neighbor's leftmost key-pointer pair
+         * to node's rightmost position.
+         *
+         */
+        if(node->item->flags & BTREE_ITEM_LEAF) {
+            /*
+             *  10 30                  17 30
+             * /  \            ==>    /  \
+             *5  10 17 19 20        5 10  17 19 20
+             */
+            __copy_bnode_key(&node->item->key[node->item->nrkeys],&neighbor->item->key[0]);
+            //__copy_bnode_off(&node->item->ptrs[node->item->nrptrs],&node->item->ptrs[node->item->nrkeys]);
+            __copy_bnode_off(&node->item->ptrs[node->item->nrkeys],&neighbor->item->ptrs[0]);
+            __copy_bnode_key(&hist[size]->item->key[k_prime_index],&neighbor->item->key[1]);
+            struct stp_bnode_off off;
+            off.ino = neighbor->item->key[0].ino;
+            off.flags = neighbor->item->location.flags;
+            off.len = neighbor->item->location.count;
+            off.offset = neighbor->item->location.offset;
+            __copy_bnode_off(&node->item->ptrs[node->item->nrptrs],&off);
+            
+            for(i = 1;i < neighbor->item->nrkeys;i++)
+            {
+                __copy_bnode_key(&neighbor->item->key[i-1],&neighbor->item->key[i]);
+                __copy_bnode_off(&neighbor->item->ptrs[i-1],&neighbor->item->ptrs[i]);
+            }
+            
+            __copy_bnode_off(&neighbor->item->ptrs[i-1],&neighbor->item->ptrs[i]);
+            
+        } else {
+            /*
+             *  10 30                     11 30      
+             * /  \              ===>     /  \
+             *5 11 17 19 20            5 10  17 19 20
+             */
+            __copy_bnode_key(&node->item->key[node->item->nrkeys],k_prime);
+            __copy_bnode_off(&node->item->ptrs[node->item->nrptrs],&neighbor->item->ptrs[0]);
+            node->ptrs[node->item->nrptrs] = neighbor->ptrs[0];
+            
+            __copy_bnode_key(&hist[size]->item->key[k_prime_index],&neighbor->item->key[0]);
+            
+            for(i = 0; i < neighbor->item->nrkeys;i++) {
+                __copy_bnode_key(&neighbor->item->key[i],&neighbor->item->key[i+1]);
+                __copy_bnode_off(&neighbor->item->ptrs[i],&neighbor->item->ptrs[i+1]);
+                neighbor->ptrs[i] = neighbor->ptrs[i+1];
+            }
+            
+            if(neighbor->item->flags & BTREE_ITEM_LEAF) {
+                __copy_bnode_off(&neighbor->item->ptrs[i],&neighbor->item->ptrs[i+1]);
+            } else 
+                neighbor->ptrs[i] = neighbor->ptrs[i+1];
+            
+        }
+    }
+    
+    node->item->nrkeys ++;
+    node->item->nrptrs = node->item->nrkeys + 1;
+    
+    neighbor->item->nrkeys --;
+    neighbor->item->nrptrs = neighbor->item->nrkeys + 1;
+    
+    neighbor->flags |= STP_INDEX_BNODE_DIRTY;
+    node->flags |= STP_INDEX_BNODE_DIRTY;
+    hist[size]->flags |= STP_INDEX_BNODE_DIRTY;
+    
+    list_move(&sb->dirty_list,&neighbor->dirty);
+    list_move(&sb->dirty_list,&hist[size]->dirty);
+    list_move(&sb->dirty_list,&node->dirty);
+    
+    return 0;
+}
+
+
+static int __adjust_root(struct stp_btree_info *sb,struct stp_bnode *node)
+{
+    struct stp_bnode *root;
+    
+    //nonempty root
+    if(node->item->nrkeys > 0) 
+        return 0;
+    /*
+     * Case:empty root
+     */
+    // If it has a child,promote the first(only)
+    // Child as the new root
+    if(!(node->item->flags & BTREE_ITEM_LEAF)) {
+        __read_ptrs(node,0);
+        root = node->ptrs[0];
+    } else {
+        root = NULL;
+    }
+    
+    set_root(sb,root);
+    __btree_node_destroy(node);
+    //    sb->ops->free(sb,node);
+    return 0;
+}
+
+static int get_neighbor_index(struct stp_bnode *parent,const struct stp_bnode *child,int *idx)
+{
+    assert(!(parent->item->flags & BTREE_ITEM_LEAF));
+    
+    for(*idx = 0;*idx<parent->item->nrptrs;(*idx)++)
+    {
+        __read_ptrs(parent,*idx);
+        if(parent->ptrs[*idx] == child) {
+            *idx = *idx - 1;
+            return 0;
+        }
+        
+    }
+    
+    fprintf(stderr,"ERROR(%s):can't find neighbor,parent:%p,child:%p\n",__FUNCTION__,parent,child);
+    //    exit(-1);
+    stp_errno = STP_INDEX_NOT_EXIST;
+    return -1;
+}
+
+/*
+ * delete an entry from node (hist[size-1])
+ * Removes the record and its key and pointer
+ * from the leaf,and then makes all appropriate
+ * changes to preserve the B+ tree properties.
+ * 
+ */
+static int __btree_delete_entry(struct stp_btree_info *sb,struct stp_bnode **hist,int size,int index)
+{
+    int i,idx;
+    int k_prime_index;
+    struct stp_bnode_key k_prime;
+    struct stp_bnode *node = hist[--size];
+
+    printf("%s:ino:%llu,index:%d,node:%p\n",__func__,node->item->key[index].ino,index,node);
+
+    //Remove key and pointer from node
+    if(__remove_entry_from_node(sb,node,index) < 0)
+        return -1;
+    
+    //Case: deletion from the root
+    if(node == sb->root)
+        return __adjust_root(sb,node);
+    /*
+     * Case: deletion from a node below the root.
+     * (Rest of function body)
+     */
+    
+    /*
+     * Determine minimum allowable size of node
+     * to be preserved after deletion.
+     */
+    /*
+     * Case: node stays at or above minimum,
+     * (The simple case.)
+     */
+    if(node->item->nrkeys >= BTREE_KEY_MIN_TEST)
+        return 0;
+    /*
+     * Case: node falls below minimum.
+     * Either coalescence or redistribution
+     * is needed.
+     *
+     */
+    /*
+     * Find the appropriate neighbor node with 
+     * which to coalesce.
+     * Also find the key (k_prime) in the parent
+     * between the pointer to node n and the pointer
+     * to the neighbor
+     */
+    printf("%s,node:%p,parent:%p\n",__FUNCTION__,node,hist[size-1]);
+    --size;
+    if(get_neighbor_index(hist[size],node,&idx) < 0) return -1;
+    
+    k_prime_index = idx == -1? 0:idx;
+    __copy_bnode_key(&k_prime,&hist[size]->item->key[k_prime_index]);
+    
+    struct stp_bnode *neighbor;
+    int neighbor_index;
+    
+    neighbor_index = idx == -1?1:idx;
+    __read_ptrs(hist[size],neighbor_index);
+    neighbor = hist[size]->ptrs[neighbor_index];
+    
+    /*
+     * Colaescence
+     */
+    if(neighbor->item->nrkeys + node->item->nrkeys < BTREE_KEY_MAX_TEST)
+        return colaescence_nodes(sb,node,neighbor,idx,k_prime_index,&k_prime,hist,size);
+    
+    else
+        /* Redistribution */
+        return redistribute_nodes(sb,node,neighbor,idx,k_prime_index,&k_prime,hist,size);
+    
+}
+
+/*
+ * delete function
+ * referenced by Amittai's bpt.c,
+ * http://www.amittai.com/prose/bplustree.html
+ */
+static int __do_btree_super_delete(struct stp_btree_info *sb, u64 ino)
+{
+    struct stp_bnode *hist[BTREE_MAX_LEVEL];
+    struct stp_bnode *node,*prev,*next;
+    int found,idx,size,pos;
+    
+    node = NULL;
+    memset(hist,0,sizeof(*hist) * BTREE_MAX_LEVEL);
+    
+    node = __btree_search_hist(sb,ino,hist,&size,&found,&idx);
+    if(!found || !node) {
+        stp_errno = STP_INDEX_NOT_EXIST;
+        return -1;
+    }
+    
+    assert(node->item->key[idx].ino == ino);
+    assert(hist[size - 1] == node);
+    return __btree_delete_entry(sb,hist,size,idx);
+}
+
+
 static int do_btree_super_rm(struct stp_btree_info *sb,u64 ino)
 {
-    return -1;
+    if(!ino) {
+        stp_errno = STP_INVALID_ARGUMENT;
+        return -1;
+    }
+    
+    return __do_btree_super_delete(sb,ino);
 }
 
 static int do_btree_super_destroy(struct stp_btree_info *sb)
@@ -813,8 +1394,11 @@ static int do_btree_super_destroy(struct stp_btree_info *sb)
         if(bnode->flags & STP_INDEX_BNODE_CREAT) {
             free(bnode->item);
             // umem_cache_free(btree_bnode_item_slab,bnode->item);
-        }
+        } else
+            munmap(bnode->item,sizeof(struct stp_bnode_item));
+        
         umem_cache_free(btree_bnode_slab,bnode);
+        sb->active --;
     }
     /*destroy cache*/
     umem_cache_destroy(btree_bnode_slab);
@@ -895,4 +1479,5 @@ const struct stp_btree_operations stp_btree_super_operations ={
     .debug = do_btree_super_debug,
     .debug_btree = do_btree_super_debug_root,
     .allocate = do_btree_super_allocate,
+    .free = do_btree_super_free,
 };

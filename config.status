@@ -444,7 +444,7 @@ Copyright (C) 2009 Free Software Foundation, Inc.
 This config.status script is free software; the Free Software Foundation
 gives unlimited permission to copy, distribute and modify it."
 
-ac_pwd='/home/ndsl/program/stp'
+ac_pwd='/media/E/programming/stp2'
 srcdir='.'
 INSTALL='/usr/bin/install -c'
 MKDIR_P='/bin/mkdir -p'
@@ -626,7 +626,7 @@ S["CFLAGS"]="-g -O0 -Werror"
 S["CC"]="gcc"
 S["am__untar"]="${AMTAR} xf -"
 S["am__tar"]="${AMTAR} chof - \"$$tardir\""
-S["AMTAR"]="${SHELL} /home/ndsl/program/stp/missing --run tar"
+S["AMTAR"]="${SHELL} /media/E/programming/stp2/missing --run tar"
 S["am__leading_dot"]="."
 S["SET_MAKE"]=""
 S["AWK"]="gawk"
@@ -634,12 +634,12 @@ S["mkdir_p"]="/bin/mkdir -p"
 S["MKDIR_P"]="/bin/mkdir -p"
 S["INSTALL_STRIP_PROGRAM"]="$(install_sh) -c -s"
 S["STRIP"]=""
-S["install_sh"]="${SHELL} /home/ndsl/program/stp/install-sh"
-S["MAKEINFO"]="${SHELL} /home/ndsl/program/stp/missing --run makeinfo"
-S["AUTOHEADER"]="${SHELL} /home/ndsl/program/stp/missing --run autoheader"
-S["AUTOMAKE"]="${SHELL} /home/ndsl/program/stp/missing --run automake-1.11"
-S["AUTOCONF"]="${SHELL} /home/ndsl/program/stp/missing --run autoconf"
-S["ACLOCAL"]="${SHELL} /home/ndsl/program/stp/missing --run aclocal-1.11"
+S["install_sh"]="${SHELL} /media/E/programming/stp2/install-sh"
+S["MAKEINFO"]="${SHELL} /media/E/programming/stp2/missing --run makeinfo"
+S["AUTOHEADER"]="${SHELL} /media/E/programming/stp2/missing --run autoheader"
+S["AUTOMAKE"]="${SHELL} /media/E/programming/stp2/missing --run automake-1.11"
+S["AUTOCONF"]="${SHELL} /media/E/programming/stp2/missing --run autoconf"
+S["ACLOCAL"]="${SHELL} /media/E/programming/stp2/missing --run aclocal-1.11"
 S["VERSION"]="1.0"
 S["PACKAGE"]="stp"
 S["CYGPATH_W"]="echo"

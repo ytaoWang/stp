@@ -63,7 +63,8 @@ int main(int argc,char *argv[])
     while(ino <= num) 
     {
         //printf("create file ino:%llu\n",ino);
-        if(stp_creat(file,"test1") < 0) {
+        //        if(stp_creat(file,"test1") < 0) {
+        if(stp_unlink(file,"test1") < 0) {
             printf("creat file test1 error:%s,errno:%d\n",stp_strerror(stp_errno),stp_errno);
                   break;
         }

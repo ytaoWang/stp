@@ -37,9 +37,11 @@
 #define STP_INVALID_ARGUMENT       33
 #define STP_NO_SYSCALL             34
 #define STP_INDEX_EXIST 	       35
+#define STP_INDEX_MAX_LEVEL	       36
+#define STP_INDEX_NOT_EXIST        37
 
 #define STP_MIN_ERRNO             0
-#define STP_MAX_ERRNO             35
+#define STP_MAX_ERRNO             37
 
 #define N_(s)  (s)
 #define _(s)  ((const char *)s)
