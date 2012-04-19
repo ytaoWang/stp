@@ -153,12 +153,13 @@ static int read_btree_info(int bfd,struct stp_btree_info ** _btree,unsigned int 
     struct stp_btree_info *btree = NULL;
     void *addr;
     
-    if(!(btree = (struct stp_btree_info *)calloc(1,\
-             sizeof(struct stp_btree_info)))) {
+    if(!(btree = (struct stp_btree_info *)calloc(1,sizeof(struct stp_btree_info)))) {
         stp_errno = STP_MALLOC_ERROR;
         return -1;
     }
-    
+
+    //memset(btree,0,sizeof(struct stp_btree_info));
+
     btree->ops = &stp_btree_super_operations;
     
     if((mode & STP_FS_CREAT) && ftruncate(bfd,BTREE_SUPER_SIZE) < 0) {

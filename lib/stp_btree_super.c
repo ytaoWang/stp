@@ -713,14 +713,14 @@ static int __do_btree_split_child(struct stp_btree_info *sb,struct stp_bnode *pa
     return 0;
 }
 
-static int __do_btree_insert_nonfull(struct stp_bnode *root,const struct stp_bnode_off *off,int flag)
+static int __do_btree_insert_nonfull(struct stp_btree_info *sb,struct stp_bnode *root,const struct stp_bnode_off *off,int flag)
 {
-    struct stp_btree_info *sb;
+    //    struct stp_btree_info *sb;
     struct stp_bnode *node;
     int i,found,idx;
     
     i = root->item->nrkeys - 1;
-    sb = root->tree;
+    //sb = root->tree;
     
     if(root->item->flags & BTREE_ITEM_LEAF) {
         __copy_bnode_off(&root->item->ptrs[i+2],&root->item->ptrs[i+1]);
@@ -754,7 +754,7 @@ static int __do_btree_insert_nonfull(struct stp_bnode *root,const struct stp_bno
             */
         }
         
-        return __do_btree_insert_nonfull(node->ptrs[i],off,flag);
+        return __do_btree_insert_nonfull(sb,node->ptrs[i],off,flag);
     }
 }
 
@@ -791,12 +791,12 @@ static int __do_btree_insert(struct stp_btree_info *sb,const struct stp_bnode_of
         return -1;
     set_root(sb,node);
     //    printf("%s:%d root:%p\n",__FUNCTION__,__LINE__,root);
-    ret = __do_btree_insert_nonfull(node,off,flag);
+    ret = __do_btree_insert_nonfull(sb,node,off,flag);
     //sb->ops->debug_btree(sb);
     return ret;
    }
   
-  ret = __do_btree_insert_nonfull(root,off,flag);
+  ret = __do_btree_insert_nonfull(sb,root,off,flag);
   //  sb->ops->debug_btree(sb);
   return ret;
 }
