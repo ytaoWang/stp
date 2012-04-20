@@ -23,7 +23,7 @@ struct stp_header {
 }__attribute__((__packed__));
 
 /*
- * directory item(140Byte) in directory
+ * directory item(256Byte) in directory
  */
 #define DIR_LEN 127
 
@@ -31,11 +31,12 @@ struct stp_dir_item {
     u64 ino;
     u32 name_len;
     char name[DIR_LEN + 1];
-    u8 padding[116];
+    u8 flags;
+    u8 padding[115];
 }__attribute__((__packed__));
 
 /*
- * inode item in disk 128 byte
+ * inode item in disk 256 byte
  * 
  */
 struct stp_inode_item {
@@ -53,7 +54,16 @@ struct stp_inode_item {
     u64 otime;
     u64 transid;
     u32 nritem;//file-item number dir_item 
-    u8 padding[32];
+    union //dir entry or extend attribution 
+    {
+        //direct(8KB 32 entries),indirect(8KB-8KB)
+        struct stp_header entry[3]; //for dir record
+        struct extend_attribution {
+            char ip[32];
+            u8 padding[96];
+        } extend;   
+    };
+    char checksum[32];
 } __attribute__((__packed__));
 
 /*
