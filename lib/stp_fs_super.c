@@ -1,4 +1,3 @@
-
 #include <stdlib.h>
 #include <semaphore.h>
 #include <pthread.h>
@@ -78,9 +77,6 @@ static int do_fs_super_init(struct stp_fs_info * super)
         super->super->ino = 1;
         super->super->nrdelete = 0;
         memset(&super->super->root,0,sizeof(struct stp_inode_item));
-        
-        //fsync(super->fd);
-        //    printf("update fs super block.\n");
     }
 
     init_root(super,&super->super->root);

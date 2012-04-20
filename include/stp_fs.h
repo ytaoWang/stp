@@ -23,7 +23,7 @@ struct stp_header {
 }__attribute__((__packed__));
 
 /*
- * directory item in directory
+ * directory item(140Byte) in directory
  */
 #define DIR_LEN 127
 
@@ -31,6 +31,7 @@ struct stp_dir_item {
     u64 ino;
     u32 name_len;
     char name[DIR_LEN + 1];
+    u8 padding[116];
 }__attribute__((__packed__));
 
 /*

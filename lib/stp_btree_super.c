@@ -24,6 +24,10 @@
 static umem_cache_t *btree_bnode_slab = NULL; //size:32,stp_inode_item:128,stp_inode:68
 //can't allocate memory for btree_bnode_item_slab
 static umem_cache_t *btree_bnode_item_slab = NULL; //size:2048,dir_item:140
+static u64 overflap = 0;//statics for insetion
+static u64 deletion = 0;//statics for deletion
+static u64 deletion_overflap = 0;//statics for deletion_overflap
+
 
 static void __btree_node_destroy(struct stp_bnode *node);
 static int __btree_delete_entry(struct stp_btree_info *sb,struct stp_bnode **hist,int size,int index);
@@ -758,6 +762,7 @@ static int __do_btree_insert_nonfull(struct stp_btree_info *sb,struct stp_bnode 
     }
 }
 
+
 static int __do_btree_insert(struct stp_btree_info *sb,const struct stp_bnode_off *off,int flag)
 {
   struct stp_bnode *root = sb->root;
@@ -772,6 +777,7 @@ static int __do_btree_insert(struct stp_btree_info *sb,const struct stp_bnode_of
           } else {
               fprintf(stderr,"[WARNING]:key:%llu,BTREE_OVERFLAP\n",off->ino);
               __copy_item(sb,node,off,idx);
+              overflap ++;
               return 0;
           }
       }
@@ -1103,6 +1109,7 @@ static void __btree_node_destroy(struct stp_bnode *node)
     off = (node->item->location.offset - BTREE_SUPER_SIZE)/sizeof(struct stp_bnode_item);
     
     bitmap_clear(sb->super->bitmap,off);
+    sb->super->nritems --;
     
     list_del_element(&node->list);
     list_del_element(&node->dirty);
@@ -1374,11 +1381,14 @@ static int __do_btree_super_delete(struct stp_btree_info *sb, u64 ino)
     node = __btree_search_hist(sb,ino,hist,&size,&found,&idx);
     if(!found || !node) {
         stp_errno = STP_INDEX_NOT_EXIST;
+        deletion_overflap ++;
         return -1;
     }
     
     assert(node->item->key[idx].ino == ino);
     assert(hist[size - 1] == node);
+    sb->super->nrkeys --;
+    deletion ++;
     return __btree_delete_entry(sb,hist,size,idx);
 }
 
@@ -1387,6 +1397,7 @@ static int do_btree_super_rm(struct stp_btree_info *sb,u64 ino)
 {
     if(!ino) {
         stp_errno = STP_INVALID_ARGUMENT;
+        deletion_overflap++;
         return -1;
     }
     
@@ -1397,7 +1408,8 @@ static int do_btree_super_destroy(struct stp_btree_info *sb)
 {
     struct stp_bnode *bnode,*next;
     
-    printf("%s:%d,before entry_del,root:%p\n",__func__,__LINE__,sb->root);
+    printf("%s:%d,before entry_del,root:%p,active:%d,keys:%llu,items:%u,overflap:%llu\n",\
+           __func__,__LINE__,sb->root,sb->active,sb->super->nrkeys,sb->super->nritems,overflap);
     
     /*destroy bnode and flush it into disk*/
     list_for_each_entry_del(bnode,next,&sb->dirty_list,dirty) {
@@ -1425,6 +1437,10 @@ static int do_btree_super_destroy(struct stp_btree_info *sb)
     umem_cache_destroy(btree_bnode_item_slab);
     sem_destroy(&sb->sem);
     pthread_mutex_destroy(&sb->mutex);
+
+    printf("%s:%d,root:%p,active:%d,keys:%llu,items:%u,overflap:%llu,deletion:%llu,deletion_overflap:%llu\n",\
+           __func__,__LINE__,sb->root,sb->active,sb->super->nrkeys,sb->super->nritems,overflap,deletion,deletion_overflap);
+
     return 0;
 }
 
