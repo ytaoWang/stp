@@ -60,14 +60,16 @@ struct stp_inode_item {
         struct stp_header entry[3]; //for dir record
         struct extend_attribution {
             char ip[32];
-            u8 padding[96];
+            u8 padding[64];
         } extend;   
     };
     char checksum[32];
+    char address[32];//meta location
 } __attribute__((__packed__));
 
 /*
  * meta file super block
+ * 4KB --metadata
  *
  */
 #define FS_SUPER_SIZE  (4*1024)
@@ -96,7 +98,7 @@ struct stp_inode_operations {
     int (*setattr)(struct stp_inode *);
     int (*mkdir)(struct stp_inode *,const char *,size_t,u64);
     int (*rm)(struct stp_inode *,u64 ino);
-    int (*create)(struct stp_inode *,u64 ino);
+    int (*creat)(struct stp_inode *,u64 ino);
     int (*readdir)(struct stp_inode *);
     int (*destroy)(struct stp_inode *);
 };
@@ -104,6 +106,12 @@ struct stp_inode_operations {
 #define STP_FS_INODE_CREAT  (1<<0)
 #define STP_FS_INODE_DIRTY  (1<<1)
 #define STP_FS_INODE_DIRTY_MM (1<<2)
+
+struct stp_fs_dir {
+    struct 
+};
+    
+        
 
 struct stp_inode {
     u8 flags;
@@ -113,6 +121,7 @@ struct stp_inode {
     struct list lru;
     struct list dirty;
     struct list list;
+    struct list dir_list;//for dir cache
     struct stp_fs_info *fs;
     struct stp_inode_item *item;
     const struct stp_inode_operations *ops;
@@ -144,6 +153,7 @@ struct stp_fs_info {
     u32 magic;
     u32 active;
     u64 transid;
+    off_t offset;//current fs file offset
     sem_t sem;
     pthread_mutex_t mutex;
     struct stp_fs_super *super;
