@@ -16,7 +16,8 @@
 #include "rb_tree.h"
 
 static umem_cache_t *fs_inode_slab = NULL; //size 32
-static umem_cache_t *fs_inode_item_slab = NULL; //size 128
+static umem_cache_t *fs_inode_item_slab = NULL; //size 256
+static umem_cache_t *fs_entry_slab = NULL;//for stp_fs_dir size 36
 
 static struct stp_inode * __get_stp_inode(struct stp_fs_info *sb);
 
@@ -24,6 +25,7 @@ static struct stp_inode * __get_stp_inode(struct stp_fs_info *sb);
 
 
 static void __set_fs_header(struct stp_header *dest,const struct stp_header *src);
+static void __do_destroy_entry(struct stp_fs_info *sb,struct stp_inode *inode);
 
 static void init_root(struct stp_fs_info *sb,struct stp_inode_item *_inode)
 {
@@ -59,6 +61,8 @@ static int do_fs_super_init(struct stp_fs_info * super)
     list_init(&super->inode_lru);
     list_init(&super->dirty_list);
     list_init(&super->inode_list);
+    list_init(&super->entry_dirty_list);
+    list_init(&super->entry_list);
     init_rb_root(&super->root,NULL);
 
     if((fs_inode_slab = umem_cache_create("stp_inode_slab",\
@@ -71,6 +75,12 @@ static int do_fs_super_init(struct stp_fs_info * super)
         goto fail;
     }
 
+    if((fs_entry_slab = umem_cache_create("stp_entry_slab",\
+                                               sizeof(struct stp_fs_entry),ALIGN4,SLAB_NOSLEEP,NULL,NULL)) == NULL) {
+        umem_cache_destroy(fs_inode_slab);
+        umem_cache_destroy(fs_inode_item_slab);
+        goto fail;
+    }
 
     if(super->mode & STP_FS_CREAT) {
         super->super->magic = STP_FS_MAGIC;
@@ -88,8 +98,9 @@ static int do_fs_super_init(struct stp_fs_info * super)
     
     super->offset = lseek(super->fd,0,SEEK_END);
     
-    printf("magic:%x,stp_inode size:%u,stp_inode_item size:%u,dir_item:%u\n",\
-           super->super->magic,sizeof(struct stp_inode),sizeof(struct stp_inode_item),sizeof(struct stp_dir_item));
+    printf("magic:%x,stp_inode size:%u,stp_inode_item size:%u,dir_item:%u,fs_entry:%u,dirent:%u,indirent:%u\n",\
+           super->super->magic,sizeof(struct stp_inode),sizeof(struct stp_inode_item),sizeof(struct stp_dir_item),sizeof(struct stp_fs_entry),\
+           sizeof(struct stp_fs_dirent),sizeof(struct stp_fs_indir));
     
     return 0;
  fail:
@@ -120,6 +131,10 @@ static struct stp_inode * __get_stp_inode(struct stp_fs_info *super)
     list_init(&inode->lru);
     list_init(&inode->dirty);
     list_init(&inode->list);
+    list_init(&inode->entry_list);
+    list_init(&inode->child);
+    list_init(&inode->sibling);
+    inode->parent = NULL;
     //init_rb_node(&inode->node,1);
     inode->fs = super;
     inode->ops = &inode_operations;
@@ -154,7 +169,7 @@ static struct stp_inode * do_fs_super_allocate(struct stp_fs_info * super,off_t 
     off_t offset;
     inode->flags = STP_FS_INODE_DIRTY | STP_FS_INODE_CREAT;
     
-    memset(inode->item,0,sizeof(struct inode_item));
+    memset(inode->item,0,sizeof(struct stp_inode_item));
     
     pthread_mutex_lock(&super->mutex);
     list_move(&super->dirty_list,&inode->dirty);
@@ -174,6 +189,7 @@ static struct stp_inode * do_fs_super_allocate(struct stp_fs_info * super,off_t 
     }
 
     init_rb_node(&inode->node,inode->item->ino);
+    init_rb_root(&inode->root,NULL);
     inode->ops->init(inode);
 
     pthread_mutex_lock(&super->mutex);
@@ -191,41 +207,120 @@ static struct stp_inode * do_fs_super_allocate(struct stp_fs_info * super,off_t 
 /*
  * allocate two pages for dentry
  */
-static int do_fs_super_alloc_pages(struct stp_inode *inode)
+static int do_fs_super_alloc_pages(struct stp_fs_info *sb,struct stp_fs_entry *entry)
 {
-    u32 nrentries = inode->nritem;
-    struct stp_header location;
-    struct stp_fs_info *sb = inode->fs;
-    
-    memset(&location,0,sizeof(location));
     
     pthread_mutex_lock(&sb->mutex);
     
-    location.offset = sb->offset;
-    location.count = 8*1024;
-    sb->offset += location.count;
+    entry->offset = sb->offset;
+
+    if(!(entry->size % (4*1024))) {
+        entry->size += (4*1024 - 1);
+        entry->size &= (4*1024 - 1);
+    } else if(!entry->size)
+        entry->size = 8*1024;
+
+    sb->offset += entry->size;
+    sb->super->bytes_used += entry->size;
+    sb->super->total_bytes += entry->size;
     
     pthread_mutex_unlock(&sb->mutex);
     
-    assert(inode->item && inode->item->mode & S_IFDIR);
-    //allocate first page
-    if(nrentries == 0) {
-        __set_fs_header(&inode->entry[0],&location);
-        return 0;
+    if((entry->entry = mmap(NULL,entry->size,PROT_READ|PROT_WRITE,MAP_SHARED,sb->fd,entry->offset)) == MAP_FAILED) {
+        stp_errno = STP_MALLOC_ERROR;
+
+        pthread_mutex_lock(&sb->mutex);
+        sb->offset -= entry->size;
+        pthread_mutex_unlock(&sb->mutex);
+
+        return -1;
+    }
+
+    //list_move(&sb->entry_list,&entry->list);
+    
+    return 0;
+}
+
+static int do_fs_super_read_pages(struct stp_fs_info *sb,struct stp_fs_entry *entry)
+{
+    assert(entry->offset && entry->size);
+    
+    if((entry->entry = mmap(NULL,entry->size,PROT_READ|PROT_WRITE,MAP_SHARED,sb->fd,entry->offset)) == MAP_FAILED) {
+        stp_errno = STP_MALLOC_ERROR;
+        return -1;
+    }
+
+    //list_move(&sb->entry_list,&entry->list);
+    return 0;
+}
+
+static int do_fs_super_rm_pages(struct stp_fs_info *sb,struct stp_fs_entry *entry)
+{
+    assert(entry->size && entry->offset && entry->entry);
+    
+    struct stp_header *location;
+    
+    pthread_mutex_lock(&sb->mutex);
+    
+    if(sb->offset == (entry->offset + entry->size)) 
+        sb->offset = entry->offset;
+    else {
+        sb->super->bytes_hole += entry->size;
+        sb->super->bytes_used -= entry->size;
     }
     
+    pthread_mutex_unlock(&sb->mutex);
     
-    return -1;
+    location = (struct stp_header *)entry->entry;
+    location->flags |= STP_HEADER_DELETE;
+    
+    return entry->ops->release(sb,entry);
 }
 
-static int do_fs_super_release_pages(struct stp_inode *inode)
+
+static int do_fs_super_release_pages(struct stp_fs_info *sb,struct stp_fs_entry *entry)
 {
-    return -1;
+    assert(entry->offset && entry->size);
+    
+    if(!entry->entry) return 0;
+    
+    if(entry->flags & STP_FS_ENTRY_DIRTY) {
+        msync(entry->entry,entry->size,MS_ASYNC);
+    }
+    
+    list_del_element(&entry->list);
+    list_del_element(&entry->lru);
+    list_del_element(&entry->dirty);
+    
+    munmap(entry->entry,entry->size);
+    
+    return 0;
 }
 
-static int do_fs_super_free(struct stp_fs_info *super,struct stp_inode *inode)
+static int do_fs_super_sync_pages(struct stp_fs_info *sb,struct stp_fs_entry *entry)
 {
-    return -1;
+    if(msync(entry->entry,entry->size,MS_ASYNC) < 0) return -1;
+    entry->flags &= ~STP_FS_ENTRY_DIRTY;
+    
+    list_del_element(&entry->dirty);
+    
+    return 0;
+}
+
+
+static int do_fs_super_free(struct stp_fs_info *sb,struct stp_inode *inode)
+{
+    
+    inode->ops->free(inode);
+    
+    pthread_mutex_lock(&sb->mutex);
+    
+    sb->super->nritems --;
+    sb->super->bytes_used -= sizeof(struct stp_inode_item);
+    
+    pthread_mutex_unlock(&sb->mutex);
+    
+    return 0;
 }
 
 static int do_fs_super_read(struct stp_fs_info * sb,struct stp_inode *inode,off_t offset)
@@ -253,6 +348,17 @@ static int do_fs_super_read(struct stp_fs_info * sb,struct stp_inode *inode,off_
 
 static int do_fs_super_sync(struct stp_fs_info *super)
 {
+    struct stp_inode *inode;
+    
+    list_for_each_entry(inode,&super->dirty_list,dirty) {
+        super->ops->write(super,inode);
+    }
+
+    struct stp_fs_entry *entry;
+    list_for_each_entry(entry,&super->entry_dirty_list,dirty) {
+        entry->ops->sync(super,entry);
+    }
+
     return -1;
 }
 
@@ -267,7 +373,12 @@ static int do_fs_super_write(struct stp_fs_info *super,struct stp_inode *inode)
     res = pwrite(super->fd,inode->item,inode->item->location.count,inode->item->location.offset);
     if(res < 0) 
         stp_errno = STP_META_WRITE_ERROR;
-
+    else 
+    {
+        inode->flags &= ~STP_INODE_DIRTY;
+        list_del_element(&inode->dirty);
+    }
+    
     return res;    
 }
 
@@ -284,13 +395,20 @@ static int do_fs_super_destroy(struct stp_fs_info *super)
     
     /** destroy bnode and flush it into disk*/
     fsync(super->fd);
-
+    /** flush dirty dirent to disk */
+    struct stp_fs_entry *dir,*ndir;
+    list_for_each_entry_del(dir,ndir,&super->entry_dirty_list,dirty) {
+        if(dir->entry)
+            msync(dir->entry,dir->size,MS_SYNC);
+        list_del_element(&dir->dirty);
+    }
+    
     /**free all inode in inode_list*/
     list_for_each_entry_del(inode,next,&super->inode_list,list)
     {
+        //destroy dir function here
+        // __do_destroy_entry(super,inode);
         rb_tree_erase(&super->root,&inode->node);
-        list_del_element(&inode->list);
-        pthread_mutex_destroy(&inode->lock);
         inode->ops->destroy(inode);
         if(inode->flags & STP_FS_INODE_CREAT)
             umem_cache_free(fs_inode_item_slab,inode->item);
@@ -306,6 +424,7 @@ static int do_fs_super_destroy(struct stp_fs_info *super)
     /**destroy cache*/
     umem_cache_destroy(fs_inode_slab);
     umem_cache_destroy(fs_inode_item_slab);
+    umem_cache_destroy(fs_entry_slab);
     sem_destroy(&super->sem);
     pthread_mutex_destroy(&super->mutex);
     return 0;
@@ -319,13 +438,100 @@ static void __set_fs_header(struct stp_header *dest,const struct stp_header *src
     dest->nritems = src->nritems;
 }
 
+static void __do_destroy_entry(struct stp_fs_info *sb,struct stp_inode *inode)
+{
+    struct stp_fs_entry *dir,*next;
+    
+    /* flush dirty dirent to disk */
+    list_for_each_entry_del(dir,next,&inode->entry_list,list)
+    {
+        list_del_element(&dir->list);
+        if(dir->entry)
+            munmap(dir->entry,sizeof(dir->size));
+        list_del_element(&dir->lru);
+        list_del_element(&dir->dirty);
+        rb_tree_erase(&inode->root,&dir->node);
+        umem_cache_free(fs_entry_slab,dir);
+    }
+    
+}
+
+static int do_fs_super_lookup(struct stp_fs_info *sb,struct stp_inode **_inode,u64 ino)
+{
+    struct rb_node *node;
+    struct stp_inode *inode;
+    
+    node = rb_tree_find(&sb->root,ino);
+    if(!node) {
+        return -1;
+    }
+    
+    inode = rb_entry(node,struct stp_inode,node);
+    
+    *_inode = inode;
+    
+    return 0;
+}
+
+static int do_fs_super_find(struct stp_fs_info *sb,struct stp_inode **inode,u64 ino,off_t offset)
+{
+    struct stp_inode *_inode;
+    
+    if(!sb->ops->lookup(sb,inode,ino)) return 0;
+    
+    if(!(_inode = sb->ops->allocate(sb,offset))) return -1;
+
+    *inode = _inode;
+    
+    return 0;
+}
+
+static struct stp_fs_entry * do_fs_super_alloc_entry(struct stp_fs_info *sb,struct stp_inode *inode,off_t offset,size_t size)
+{
+    struct stp_fs_entry *entry;
+    
+    if(!(entry = umem_cache_alloc(fs_entry_slab))) {
+        stp_errno = STP_MALLOC_ERROR;
+        return NULL;
+    }
+    
+    memset(entry,0,sizeof(*entry));
+    
+    entry->inode = inode;
+    entry->size = size;
+    entry->offset = offset;
+    list_init(&entry->list);
+    list_init(&entry->lru);
+    list_init(&entry->dirty);
+    entry->ops = &fs_entry_operations;
+    init_rb_node(&entry->node,entry->offset);
+    rb_tree_insert(&inode->root,&entry->node);
+    list_move(&inode->entry_list,&entry->list);
+    
+    return entry;
+}
+
 
 const struct stp_fs_operations stp_fs_super_operations = {
     .init = do_fs_super_init,
     .allocate = do_fs_super_allocate,
+    .alloc_entry = do_fs_super_alloc_entry,
     .free = do_fs_super_free,
     .read = do_fs_super_read,
     .sync = do_fs_super_sync,
     .write = do_fs_super_write,
     .destroy = do_fs_super_destroy,
+    .lookup = do_fs_super_lookup,
+    .find = do_fs_super_find,
 };
+
+
+const struct stp_fs_entry_operations fs_entry_operations = {
+    .alloc = do_fs_super_alloc_pages,
+    .read = do_fs_super_read_pages,
+    .rm = do_fs_super_rm_pages,
+    .release = do_fs_super_release_pages,
+    .sync = do_fs_super_sync_pages,
+};
+
+    

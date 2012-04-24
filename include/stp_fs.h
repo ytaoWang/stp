@@ -12,6 +12,8 @@ extern "C" {
 #include <pthread.h>
 #include <semaphore.h>
 
+#define STP_HEADER_DELETE (1<<0)
+
 /*
  * every object(meta_item or btree_item) has a header to indicate where the node is.
  */
@@ -101,18 +103,61 @@ struct stp_inode_operations {
     int (*creat)(struct stp_inode *,u64 ino);
     int (*readdir)(struct stp_inode *);
     int (*destroy)(struct stp_inode *);
+    int (*free)(struct stp_inode *);
 };
 
 #define STP_FS_INODE_CREAT  (1<<0)
 #define STP_FS_INODE_DIRTY  (1<<1)
 #define STP_FS_INODE_DIRTY_MM (1<<2)
 
-struct stp_fs_dir {
-    struct 
-};
-    
-        
+#define STP_FS_DIR_NUM (31)
+/*
+ * dirent format in disk
+ */
+struct stp_fs_dirent {
+    struct stp_header location;
+    u8 padding[235];
+    struct stp_dir_item item[STP_FS_DIR_NUM];
+}__attribute__((__packed__));
 
+/*
+ * dirent indirect format
+ */
+struct stp_fs_indir {
+    struct stp_header location;
+    u8 padding[2];
+    struct stp_header index[389]; 
+}__attribute__((__packed__));        
+
+#define STP_FS_ENTRY_DIRTY (1<<0)
+
+struct stp_fs_entry_operations;    
+
+struct stp_fs_entry {
+    u32 flags;
+    struct stp_inode *inode;
+    void * entry;
+    size_t size;
+    off_t offset;
+    struct rb_node node;
+    struct list list;
+    struct list lru;
+    struct list dirty;
+    const struct stp_fs_entry_operations *ops;
+};
+
+struct stp_fs_info;
+
+struct stp_fs_entry_operations {
+    int (*alloc)(struct stp_fs_info *,struct stp_fs_entry *);
+    int (*read)(struct stp_fs_info *,struct stp_fs_entry *);
+    int (*rm)(struct stp_fs_info *,struct stp_fs_entry *);
+    int (*release)(struct stp_fs_info *,struct stp_fs_entry *);
+    int (*sync)(struct stp_fs_info *,struct stp_fs_entry *);
+};     
+
+extern const struct stp_fs_entry_operations fs_entry_operations;
+    
 struct stp_inode {
     u8 flags;
     u32 ref;
@@ -121,24 +166,27 @@ struct stp_inode {
     struct list lru;
     struct list dirty;
     struct list list;
-    struct list dir_list;//for dir cache
+    struct list entry_list;//for dir cache
     struct stp_fs_info *fs;
     struct stp_inode_item *item;
+    struct stp_inode *parent;
+    struct rb_root root; //key:offset + size
+    struct list child;
+    struct list sibling;
     const struct stp_inode_operations *ops;
 };
 
 extern const struct stp_inode_operations inode_operations;
-
-struct stp_fs_info;
     
 struct stp_fs_operations {
     int (*init)(struct stp_fs_info *);
     struct stp_inode* (*allocate)(struct stp_fs_info *,off_t);
-    int (*alloc_page)(struct stp_inode *,off_t);
+    struct stp_fs_entry * (*alloc_entry)(struct stp_fs_info *,struct stp_inode *,off_t,size_t);
+    int (*lookup)(struct stp_inde **inode,u64 ino);
+    int (*find)(struct stp_inode **inode,u64 ino,off_t offset);
     int (*free)(struct stp_fs_info *,struct stp_inode *);
     int (*read)(struct stp_fs_info *,struct stp_inode *,off_t offset);
     int (*sync)(struct stp_fs_info *);
-    int (*release_page)(struct stp_inode *);
     int (*write)(struct stp_fs_info *,struct stp_inode *);
     int (*destroy)(struct stp_fs_info *);
 };
@@ -162,6 +210,8 @@ struct stp_fs_info {
     struct list inode_lru;
     //    struct list inode_mm;//inode from mmap
     struct list dirty_list;
+    struct list entry_dirty_list;
+    struct list entry_list;//all inode entry(data or dir) list
     const struct stp_fs_operations *ops;//inode read/write/sync operations
 };
 
