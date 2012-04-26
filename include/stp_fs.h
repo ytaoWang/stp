@@ -99,6 +99,7 @@ struct stp_inode_operations {
     int (*init)(struct stp_inode *);
     int (*setattr)(struct stp_inode *);
     int (*mkdir)(struct stp_inode *,const char *,size_t,u64);
+    int (*lookup)(struct stp_inode *,const char *,size_t,u64);
     int (*rm)(struct stp_inode *,u64 ino);
     int (*creat)(struct stp_inode *,u64 ino);
     int (*readdir)(struct stp_inode *);
@@ -120,13 +121,14 @@ struct stp_fs_dirent {
     struct stp_dir_item item[STP_FS_DIR_NUM];
 }__attribute__((__packed__));
 
+#define DIRENT_MAX  389
 /*
  * dirent indirect format
  */
 struct stp_fs_indir {
     struct stp_header location;
     u8 padding[2];
-    struct stp_header index[389]; 
+    struct stp_header index[DIRENT_MAX]; 
 }__attribute__((__packed__));        
 
 #define STP_FS_ENTRY_DIRTY (1<<0)
@@ -182,8 +184,8 @@ struct stp_fs_operations {
     int (*init)(struct stp_fs_info *);
     struct stp_inode* (*allocate)(struct stp_fs_info *,off_t);
     struct stp_fs_entry * (*alloc_entry)(struct stp_fs_info *,struct stp_inode *,off_t,size_t);
-    int (*lookup)(struct stp_inde **inode,u64 ino);
-    int (*find)(struct stp_inode **inode,u64 ino,off_t offset);
+    int (*lookup)(struct stp_fs_info *sb,struct stp_inode **inode,u64 ino);
+    int (*find)(struct stp_fs_info *sb,struct stp_inode **inode,u64 ino,off_t offset);
     int (*free)(struct stp_fs_info *,struct stp_inode *);
     int (*read)(struct stp_fs_info *,struct stp_inode *,off_t offset);
     int (*sync)(struct stp_fs_info *);

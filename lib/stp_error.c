@@ -43,6 +43,9 @@ const char * const stp_errlist[STP_MAX_ERRNO + 1] = {
     N_("Index key has existed"),/*STP_INDEX_EXIST */
     N_("Index has reached maximum level"),/*STP_INDEX_MAX_LEVEL*/
     N_("Index key hasn't existed"),/*STP_INDEX_NOT_EXIST*/
+    N_("File has existed"),/*STP_FS_ENTRY_EXIST*/
+    N_("File hasn't existed"),/*STP_FS_ENTRY_NOEXIST*/
+    N_("Directory entry is full"),/*STP_FS_ENTRY_FULL*/
     };
 
     

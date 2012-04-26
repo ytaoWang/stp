@@ -375,7 +375,7 @@ static int do_fs_super_write(struct stp_fs_info *super,struct stp_inode *inode)
         stp_errno = STP_META_WRITE_ERROR;
     else 
     {
-        inode->flags &= ~STP_INODE_DIRTY;
+        inode->flags &= ~STP_FS_INODE_DIRTY;
         list_del_element(&inode->dirty);
     }
     
