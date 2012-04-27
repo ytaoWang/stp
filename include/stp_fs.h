@@ -98,12 +98,13 @@ struct stp_inode;
 struct stp_inode_operations {
     int (*init)(struct stp_inode *);
     int (*setattr)(struct stp_inode *);
-    int (*mkdir)(struct stp_inode *,const char *,size_t,u64);
+    int (*mkdir)(struct stp_inode *,const char *,size_t,struct stp_inode *);
     int (*lookup)(struct stp_inode *,const char *,size_t,u64);
     int (*rm)(struct stp_inode *,u64 ino);
-    int (*creat)(struct stp_inode *,u64 ino);
+    int (*creat)(struct stp_inode *,const char *,size_t,struct stp_inode *,mode_t);
     int (*readdir)(struct stp_inode *);
     int (*destroy)(struct stp_inode *);
+    int (*sync)(struct stp_inode *);
     int (*free)(struct stp_inode *);
 };
 
@@ -121,18 +122,21 @@ struct stp_fs_dirent {
     struct stp_dir_item item[STP_FS_DIR_NUM];
 }__attribute__((__packed__));
 
-#define DIRENT_MAX  389
+#define STP_FS_DIRENT_MAX  (389)
 /*
  * dirent indirect format
  */
 struct stp_fs_indir {
     struct stp_header location;
     u8 padding[2];
-    struct stp_header index[DIRENT_MAX]; 
+    struct stp_header index[STP_FS_DIRENT_MAX]; 
 }__attribute__((__packed__));        
 
 #define STP_FS_ENTRY_DIRTY (1<<0)
-
+#define STP_FS_ENTRY_DIRECT (1<<1)
+#define STP_FS_ENTRY_INDIR1 (1<<2)
+#define STP_FS_ENTRY_INDIR2 (1<<3)
+#define STP_FS_ENTRY_RB (1<<4)
 struct stp_fs_entry_operations;    
 
 struct stp_fs_entry {
@@ -151,11 +155,14 @@ struct stp_fs_entry {
 struct stp_fs_info;
 
 struct stp_fs_entry_operations {
-    int (*alloc)(struct stp_fs_info *,struct stp_fs_entry *);
+    int (*alloc)(struct stp_fs_info *,struct stp_inode *,struct stp_fs_entry *);
     int (*read)(struct stp_fs_info *,struct stp_fs_entry *);
     int (*rm)(struct stp_fs_info *,struct stp_fs_entry *);
     int (*release)(struct stp_fs_info *,struct stp_fs_entry *);
     int (*sync)(struct stp_fs_info *,struct stp_fs_entry *);
+    int (*destroy)(struct stp_fs_info *,struct stp_fs_entry *);
+    int (*free_entry)(struct stp_fs_info *,struct stp_fs_entry *);
+    int (*free)(struct stp_fs_info *,struct stp_fs_entry *);
 };     
 
 extern const struct stp_fs_entry_operations fs_entry_operations;
@@ -173,8 +180,8 @@ struct stp_inode {
     struct stp_inode_item *item;
     struct stp_inode *parent;
     struct rb_root root; //key:offset + size
-    struct list child;
-    struct list sibling;
+    struct list child;//unused
+    struct list sibling;//unused
     const struct stp_inode_operations *ops;
 };
 
@@ -183,10 +190,14 @@ extern const struct stp_inode_operations inode_operations;
 struct stp_fs_operations {
     int (*init)(struct stp_fs_info *);
     struct stp_inode* (*allocate)(struct stp_fs_info *,off_t);
+    int (*free_inode)(struct stp_fs_info *,struct stp_inode *);
+    int (*destroy_inode)(struct stp_fs_info *,struct stp_inode *);
     struct stp_fs_entry * (*alloc_entry)(struct stp_fs_info *,struct stp_inode *,off_t,size_t);
+    int (*free_entry)(struct stp_fs_info *,struct stp_fs_entry *);
+    int (*destroy_entry)(struct stp_fs_info *,struct stp_fs_entry *);
     int (*lookup)(struct stp_fs_info *sb,struct stp_inode **inode,u64 ino);
     int (*find)(struct stp_fs_info *sb,struct stp_inode **inode,u64 ino,off_t offset);
-    int (*free)(struct stp_fs_info *,struct stp_inode *);
+    int (*free)(struct stp_fs_info *);
     int (*read)(struct stp_fs_info *,struct stp_inode *,off_t offset);
     int (*sync)(struct stp_fs_info *);
     int (*write)(struct stp_fs_info *,struct stp_inode *);
@@ -211,7 +222,7 @@ struct stp_fs_info {
     struct list inode_list;
     struct list inode_lru;
     //    struct list inode_mm;//inode from mmap
-    struct list dirty_list;
+    struct list dirty_list;//inode dirty list
     struct list entry_dirty_list;
     struct list entry_list;//all inode entry(data or dir) list
     const struct stp_fs_operations *ops;//inode read/write/sync operations

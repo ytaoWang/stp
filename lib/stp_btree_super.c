@@ -206,12 +206,14 @@ static struct stp_bnode *do_btree_super_allocate(struct stp_btree_info *super,of
             return NULL;
         }
         */
-        if(!(bnode->item = calloc(1,sizeof(struct stp_bnode_item)))) {
+        if(MAP_FAILED == (bnode->item = mmap(NULL,sizeof(struct stp_bnode_item),\
+                                             PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0))) {
             umem_cache_free(btree_bnode_slab,bnode);
             stp_errno = STP_BNODE_MALLOC_ERROR;
             return NULL;
         }
         
+        memset(bnode->item,0,sizeof(struct stp_bnode_item));
         
         bnode->flags = STP_INDEX_BNODE_DIRTY | STP_INDEX_BNODE_CREAT;
         
@@ -248,8 +250,8 @@ static struct stp_bnode *do_btree_super_allocate(struct stp_btree_info *super,of
     //lru replcement policy in here
     pthread_mutex_unlock(&super->mutex);
 
-    printf("%s:%d,active:%u,offset:%llu,count:%llu,SUPER:%u\n",__FUNCTION__,__LINE__,super->active,\
-               bnode->item->location.offset,bnode->item->location.count,BTREE_SUPER_SIZE);
+    printf("%s:%d,active:%u,offset:%llu,count:%llu,SUPER:%u,node:%p\n",__FUNCTION__,__LINE__,super->active,\
+           bnode->item->location.offset,bnode->item->location.count,BTREE_SUPER_SIZE,bnode);
     
     return bnode;
 }
@@ -272,14 +274,15 @@ static int do_btree_super_read(struct stp_btree_info *sb,struct stp_bnode * bnod
         }
         printf("%s:%d,%lu in mmap\n",__FUNCTION__,__LINE__,offset);
     } else {
-        if(!(bnode->item = calloc(1,sizeof(struct stp_bnode_item)))) {
+        if(MAP_FAILED == (bnode->item = mmap(NULL,sizeof(struct stp_bnode_item), \
+                                PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0))) {
             stp_errno = STP_INDEX_READ_ERROR;
             return -1;
         }
         
         if(pread(sb->fd,bnode->item,sizeof(struct stp_bnode_item),offset) != sizeof(struct stp_bnode_item)) {
             stp_errno = STP_INDEX_READ_ERROR;
-            free(bnode->item);
+            munmap(bnode->item,sizeof(struct stp_bnode_item));
             return -1;
         }
         
@@ -879,7 +882,7 @@ static int do_btree_super_free(struct stp_btree_info *sb,struct stp_bnode *node)
     list_del_element(&node->list);
     sb->active--;
     if(node->flags & STP_INDEX_BNODE_CREAT) 
-        free(node->item);
+        munmap(node->item,sizeof(struct stp_bnode_item));
 
     umem_cache_free(btree_bnode_slab,node);
     
@@ -1115,9 +1118,13 @@ static void __btree_node_destroy(struct stp_bnode *node)
     list_del_element(&node->dirty);
     
     if(node->flags & STP_INDEX_BNODE_CREAT)
-        free(node->item);
-    else
         munmap(node->item,sizeof(struct stp_bnode_item));
+    else
+    {
+        msync(node->item,sizeof(struct stp_bnode_item),MS_ASYNC);
+        munmap(node->item,sizeof(struct stp_bnode_item));
+    }
+    
     sb->active--;
 
     umem_cache_free(btree_bnode_slab,node);
@@ -1424,7 +1431,8 @@ static int do_btree_super_destroy(struct stp_btree_info *sb)
         pthread_mutex_destroy(&bnode->lock);
         bnode->ops->destroy(bnode);
         if(bnode->flags & STP_INDEX_BNODE_CREAT) {
-            free(bnode->item);
+            munmap(bnode->item,sizeof(struct stp_bnode_item));
+            //free(bnode->item);
             // umem_cache_free(btree_bnode_item_slab,bnode->item);
         } else
             munmap(bnode->item,sizeof(struct stp_bnode_item));

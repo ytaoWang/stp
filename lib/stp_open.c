@@ -13,6 +13,11 @@
 
 static int read_fs_info(int ffd,struct stp_fs_info **,unsigned int mode);
 static int read_btree_info(int bfd,struct stp_btree_info **,unsigned int mode);
+static int __fs_info_insert(struct stp_fs_info *,u64 pino,struct stp_dir_item *,struct stp_bnode_off *,mode_t);
+static int __btree_info_insert(struct stp_btree_info *,const struct stp_bnode_off *);
+static int __btree_info_unlink(struct stp_btree_info *,const struct stp_bnode_off *);
+static int __fs_info_unlink(struct stp_fs_info *,u64 pino,const struct stp_dir_item *,struct stp_bnode_off *);
+
 
 static int stp_check(const struct stp_fs_info *fs,const struct stp_btree_info *btree)
 {
@@ -230,41 +235,44 @@ int stp_close(STP_FILE pfile)
 /**
   * create a file.
   */
-int stp_creat(STP_FILE file,const char *filename)
+int stp_creat(STP_FILE file,const char *filename,mode_t mode)
 {
   struct stp_fs_info *fs;
   struct stp_btree_info *tree;
-  u64 ino = random();
   struct stp_bnode_off off;
-  u8 flags;
-  static u32 num = 1;
+  struct stp_dir_item item;
+  int flags;
   
-  if(!file) {
+  if(!file || !filename || strlen(filename) > DIR_LEN) {
       stp_errno = STP_INVALID_ARGUMENT;
       return -1;
   }
 
+  
   fs = file->fs;
   tree = file->tree;
-  
+
   if(!(tree->mode & STP_FS_RDWR)) {
       stp_errno =  STP_INDEX_CANT_BE_WRITER;
       return -1;
   }
-  off.ino = ino;
+
+  memset(&item,0,sizeof(item));
+  
+  item.name_len = strlen(filename);
+  strncpy(item.name,filename,item.name_len);
+  
+  off.ino = random();
+  off.offset = off.ino;
+  off.len = off.offset;
   off.flags = 0;
-  off.len = ino;
-  off.offset = ino;
-  ino ++;
-  printf("%s,ino:%llu,num:%d\n",__FUNCTION__,off.ino,num);
-  //return 0;
-  flags =  tree->ops->insert(tree,&off,BTREE_OVERFLAP);
-  printf("%s,after create ino:%llu,num:%d\n",__FUNCTION__,off.ino,num);
-  num++;
-  //tree->ops->debug_btree(tree);
+  
+  flags = __fs_info_insert(fs,1,&item,&off,mode);
+  if(flags < 0) return -1;
+  //flags =  __btree_info_insert(tree,&off);
+
   return flags;
 }
-
 
 int stp_unlink(STP_FILE file,const char *filename)
 {
@@ -296,3 +304,37 @@ int stp_unlink(STP_FILE file,const char *filename)
 
   return flags;
 }
+
+static int __fs_info_insert(struct stp_fs_info *sb,u64 pino,struct stp_dir_item *key,struct stp_bnode_off *off,mode_t mode)
+{
+    struct stp_inode *inode,*parent;
+    
+    if(sb->ops->lookup(sb,&parent,pino) < 0) return -1;
+    
+    if(!(inode = sb->ops->allocate(sb,0))) return -1;
+    
+    key->ino = inode->item->ino;
+    off->ino = inode->item->ino;
+    off->offset = inode->item->location.offset;
+    off->len = inode->item->location.count;
+    printf("ino:%llu,len:%llu,offset:%llu\n",off->ino,off->len,off->offset);
+    
+    return inode->ops->creat(parent,key->name,key->name_len,inode,mode);
+}
+
+
+static int __btree_info_insert(struct stp_btree_info *tree,const struct stp_bnode_off *off)
+{
+    return tree->ops->insert(tree,off,BTREE_OVERFLAP);
+}
+
+static int __fs_info_unlink(struct stp_fs_info *sb,u64 pino,const struct stp_dir_item *item,struct stp_bnode_off *off)
+{
+    return -1;
+}
+
+static int __btree_info_unlink(struct stp_btree_info *sb,const struct stp_bnode_off *off)
+{
+    return -1;
+}
+

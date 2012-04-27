@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 
 #define N 10
 #define BITS (N * BITS_PER_U32)
@@ -42,6 +43,8 @@ int main(int argc,char *argv[])
 {
     STP_FILE file;
     u64 ino,num;
+    char name[10];
+    
     
     if(argc !=2 ) {
         fprintf(stderr,"usage:%s num\n",argv[0]);
@@ -49,6 +52,8 @@ int main(int argc,char *argv[])
     }
     
     num = atoi(argv[1]);
+    
+    memset(name,0,10);
     
     if(!(file = stp_open("stp.fs","stp.index",STP_FS_RDWR|STP_FS_CREAT)))
     {
@@ -63,8 +68,9 @@ int main(int argc,char *argv[])
     while(ino <= num) 
     {
         //printf("create file ino:%llu\n",ino);
-        //if(stp_creat(file,"test1") < 0) {
-        if(stp_unlink(file,"test1") < 0) {
+        snprintf(name,10,"%llu",ino);
+        if(stp_creat(file,name,S_IRWXU|S_IRWXO|S_IRWXG) < 0) {
+        //if(stp_unlink(file,"test1") < 0) {
             printf("creat file test1 error:%s,errno:%d\n",stp_strerror(stp_errno),stp_errno);
                   break;
         }
