@@ -290,8 +290,11 @@ static int do_fs_super_rm_pages(struct stp_fs_info *sb,struct stp_fs_entry *entr
     
     pthread_mutex_lock(&sb->mutex);
     
-    if(sb->offset == (entry->offset + entry->size)) 
+    if(sb->offset == (entry->offset + entry->size)) {
         sb->offset = entry->offset;
+        sb->super->total_bytes -= entry->size;
+    }
+    
     else {
         sb->super->bytes_hole += entry->size;
         sb->super->bytes_used -= entry->size;
@@ -339,7 +342,7 @@ static int do_fs_super_sync_pages(struct stp_fs_info *sb,struct stp_fs_entry *en
 {
     if(!(entry->flags & STP_FS_ENTRY_DIRTY))
         return 0;
-    if(!(entry->size % getpagesize())) 
+    if(!(entry->offset % getpagesize())) 
     {
         if(msync(entry->entry,entry->size,MS_ASYNC) < 0) {
             stp_errno = STP_META_WRITE_ERROR;
@@ -559,9 +562,10 @@ static int do_fs_super_free_inode(struct stp_fs_info *sb,struct stp_inode *inode
     pthread_mutex_lock(&sb->mutex);
     
     sb->super->nritems --;
-    if(sb->offset == (inode->item->location.offset + sizeof(struct stp_inode_item))) 
+    if(sb->offset == (inode->item->location.offset + sizeof(struct stp_inode_item))) {
         sb->offset = inode->item->location.offset;
-    else {
+        sb->super->total_bytes -= sizeof(struct stp_inode_item);
+    } else {
         sb->super->bytes_hole += sizeof(struct stp_inode_item);
         sb->super->bytes_used -= sizeof(struct stp_inode_item);
         location->flags |= STP_HEADER_DELETE;

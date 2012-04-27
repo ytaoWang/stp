@@ -16,6 +16,23 @@
 #include "stp_error.h"
 #include "stp.h"
 
+static inline void __copy_stat(struct stat *dest,const struct stp_inode_item *item)
+{
+    dest->st_ino = item->ino;
+    dest->st_size = item->size;
+    dest->st_nlink = item->nlink;
+    dest->st_uid = item->uid;
+    dest->st_gid = item->gid;
+    dest->st_mode = item->mode;
+    dest->st_atime = item->atime;
+    dest->st_ctime = item->ctime;
+    dest->st_mtime = item->mtime;
+    dest->st_dev = 0;
+    dest->st_rdev = 0;
+    dest->st_blocks = 0;
+    dest->st_blksize = 8*1024;
+}
+
 
 int stp_stat(STP_FILE pfile,u64 ino,struct stat *buf)
 {
@@ -23,18 +40,27 @@ int stp_stat(STP_FILE pfile,u64 ino,struct stat *buf)
     struct stp_btree_info *btree = pfile->tree;
     struct stp_bnode_off off;
     int ret;
-        
+    
+    if(!buf) {
+        stp_errno = STP_INVALID_ARGUMENT;
+        return -1;
+    }
+    
     memset(&off,0,sizeof(off));
+    if(ino == 1) {
+        __copy_stat(buf,&fs->super->root);
+    } else {
+        ret = btree->ops->search(btree,ino,&off);
+        /*
+         * read from fs 
+         *
+         */
     
-    ret = btree->ops->search(btree,ino,&off);
-    /*
-     * read from fs 
-     *
-     */
+        printf("%s:%d,ino:%llu(%llu),offset:%llu,size:%llu,ret:%d\n",__FUNCTION__,__LINE__,off.ino,ino,off.offset,off.len,ret);
+        
+        if(ret < 0) return ret;
+    }
     
-    printf("%s:%d,ino:%llu(%llu),offset:%llu,size:%llu,ret:%d\n",__FUNCTION__,__LINE__,off.ino,ino,off.offset,off.len,ret);
-    
-    if(ret < 0) return ret;
     if(!buf) return 0;
     
     return fstat(btree->fd,buf);

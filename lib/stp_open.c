@@ -269,7 +269,7 @@ int stp_creat(STP_FILE file,const char *filename,mode_t mode)
   
   flags = __fs_info_insert(fs,1,&item,&off,mode);
   if(flags < 0) return -1;
-  //flags =  __btree_info_insert(tree,&off);
+  flags =  __btree_info_insert(tree,&off);
 
   return flags;
 }
@@ -308,8 +308,17 @@ int stp_unlink(STP_FILE file,const char *filename)
 static int __fs_info_insert(struct stp_fs_info *sb,u64 pino,struct stp_dir_item *key,struct stp_bnode_off *off,mode_t mode)
 {
     struct stp_inode *inode,*parent;
+    int flags;
     
     if(sb->ops->lookup(sb,&parent,pino) < 0) return -1;
+    
+    flags = parent->ops->lookup(parent,key->name,key->name_len,0);
+    
+    if(flags < 0 && stp_errno != STP_FS_ENTRY_NOEXIST) return -1;
+    if(!flags) {
+        stp_errno = STP_FS_ENTRY_EXIST;
+        return -1;
+    }
     
     if(!(inode = sb->ops->allocate(sb,0))) return -1;
     
