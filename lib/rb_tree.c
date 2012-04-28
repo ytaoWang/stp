@@ -21,7 +21,7 @@ static void _rb_tree_find(struct rb_root *root,struct rb_node *node
 
 }
 
-struct rb_node * rb_tree_find(struct rb_root *root,uint64_t key)
+struct rb_node * rb_tree_find(const struct rb_root *root,uint64_t key)
 {
 //	struct rb_node *node = NULL;
 

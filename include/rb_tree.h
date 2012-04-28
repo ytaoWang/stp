@@ -252,7 +252,7 @@ static void right_rotate(struct rb_root *root,struct rb_node *node)
 }
 
 int rb_tree_insert(struct rb_root *,struct rb_node *);
-struct rb_node *rb_tree_find(struct rb_root *,uint64_t);
+struct rb_node *rb_tree_find(const struct rb_root *,uint64_t);
 int rb_tree_erase(struct rb_root *,struct rb_node *);
 
 #endif

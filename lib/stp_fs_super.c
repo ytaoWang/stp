@@ -289,16 +289,15 @@ static int do_fs_super_rm_pages(struct stp_fs_info *sb,struct stp_fs_entry *entr
     struct stp_header *location;
     
     pthread_mutex_lock(&sb->mutex);
-    
+    /*
     if(sb->offset == (entry->offset + entry->size)) {
         sb->offset = entry->offset;
         sb->super->total_bytes -= entry->size;
-    }
-    
-    else {
-        sb->super->bytes_hole += entry->size;
-        sb->super->bytes_used -= entry->size;
-    }
+    } else {
+    */
+    sb->super->bytes_hole += entry->size;
+    sb->super->bytes_used -= entry->size;
+    //}
     
     pthread_mutex_unlock(&sb->mutex);
     
@@ -535,23 +534,22 @@ static struct stp_fs_entry * do_fs_super_alloc_entry(struct stp_fs_info *sb,stru
 
 static int do_fs_super_free_pages(struct stp_fs_info *sb,struct stp_fs_entry *entry)
 {
+    /*
     struct stp_header *location = (struct stp_header *)entry->entry;
     
     pthread_mutex_lock(&sb->mutex);
     
-    if(sb->offset == (location->offset + location->count)) 
-        sb->offset = location->offset;
-    else {
-        sb->super->bytes_hole += location->count;
-        sb->super->bytes_used -= location->count;
-        location->flags |= STP_HEADER_DELETE;
-    }
+    sb->super->bytes_hole += location->count;
+    sb->super->bytes_used -= location->count;
+    location->flags |= STP_HEADER_DELETE;
     
     pthread_mutex_unlock(&sb->mutex);
     
     entry->flags |= STP_FS_ENTRY_DIRTY;
 
     return entry->ops->release(sb,entry);
+    */
+    return do_fs_super_rm_pages(sb,entry);
 }
 
 static int do_fs_super_free_inode(struct stp_fs_info *sb,struct stp_inode *inode)
@@ -562,15 +560,18 @@ static int do_fs_super_free_inode(struct stp_fs_info *sb,struct stp_inode *inode
     pthread_mutex_lock(&sb->mutex);
     
     sb->super->nritems --;
+    /*
     if(sb->offset == (inode->item->location.offset + sizeof(struct stp_inode_item))) {
         sb->offset = inode->item->location.offset;
         sb->super->total_bytes -= sizeof(struct stp_inode_item);
     } else {
-        sb->super->bytes_hole += sizeof(struct stp_inode_item);
-        sb->super->bytes_used -= sizeof(struct stp_inode_item);
-        location->flags |= STP_HEADER_DELETE;
-    }
-
+    */
+    sb->super->bytes_hole += sizeof(struct stp_inode_item);
+    sb->super->bytes_used -= sizeof(struct stp_inode_item);
+    location->flags |= STP_HEADER_DELETE;
+        //}
+    sb->super->nrdelete ++;
+    
     pthread_mutex_unlock(&sb->mutex);
     
     location = &inode->item->location;

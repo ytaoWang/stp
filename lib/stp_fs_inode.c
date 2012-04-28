@@ -20,6 +20,9 @@ static inline void __set_entry_dirty(struct stp_fs_info *sb,struct stp_fs_entry 
 
 static inline int __empty_location(const struct stp_header *location);
 static inline void __debug_entry(const struct stp_fs_dirent * ent);
+static inline void __debug_indir(const struct stp_inode *,const struct stp_fs_indir *);
+
+
 static int do_fs_inode_setattr(struct stp_inode *inode)
 {
     return -1;
@@ -85,8 +88,6 @@ static int __location_entry_exist(const struct stp_header *location,struct stp_i
     struct stp_fs_dirent *ent;
     
     ent = (struct stp_fs_dirent *)entry->entry;
-    
-    __debug_entry(ent);
     
     //search in entry
     if((origin = bsearch(key,ent->item,ent->location.nritems,sizeof(struct stp_dir_item),dir_item_cmp))) return 0;
@@ -234,7 +235,7 @@ static void __copy_dir_item(struct stp_dir_item *dest,const struct stp_dir_item 
 }
 
 
-static int __do_fs_entry_insert(struct stp_inode *parent,const struct stp_dir_item *item,const struct stp_header *location)
+static int __do_fs_entry_insert(struct stp_inode *parent,const struct stp_dir_item *item,struct stp_header *location)
 {
     struct stp_fs_info *sb = parent->fs;
     struct stp_fs_entry *entry;
@@ -264,10 +265,18 @@ static int __do_fs_entry_insert(struct stp_inode *parent,const struct stp_dir_it
     }
     
     __copy_dir_item(&ent->item[ent->location.nritems++],item);
+    parent->item->nritem ++;
+    location->nritems++;
+    
+    pthread_mutex_lock(&sb->mutex);
+    sb->super->nritems ++;
+    pthread_mutex_unlock(&sb->mutex);
+    
     //must be sorted(sorted by ino)
     qsort(ent->item,ent->location.nritems,sizeof(*item),dir_item_cmp);
     __set_entry_dirty(sb,entry);
     
+    __debug_entry(ent);
     return 0;
 }
 
@@ -279,17 +288,17 @@ static inline int __ent_empty(const struct stp_header *location)
 }
 
 
-static int __do_fs_indir_insert(struct stp_inode *parent,const struct stp_dir_item *item,const struct stp_header *header)
+static int __do_fs_indir_insert(struct stp_inode *parent,const struct stp_dir_item *item,struct stp_header *header)
 {
     struct stp_fs_info *sb = parent->fs;
     struct stp_fs_entry *entry;
     struct rb_node *node;
     struct stp_header *location;
     
-    if((node = rb_tree_find(&parent->root,location->offset))) {
+    if((node = rb_tree_find(&parent->root,header->offset))) {
         entry = rb_entry(node,struct stp_fs_entry,node);
     } else {
-        if(!(entry = sb->ops->alloc_entry(sb,parent,location->offset,location->count))) {
+        if(!(entry = sb->ops->alloc_entry(sb,parent,header->offset,header->count))) {
             fprintf(stderr,"[ERROR]:cann't allocate  memory in %s\n",__FUNCTION__);
             return -1;
         }
@@ -321,9 +330,14 @@ static int __do_fs_indir_insert(struct stp_inode *parent,const struct stp_dir_it
             return -1;
         __set_fs_header(location,(struct stp_header *)item->entry);
         __set_entry_dirty(sb,entry);
+        //header->nritems ++;
     }
     
-    return __do_fs_entry_insert(parent,item,location);
+    int flags =  __do_fs_entry_insert(parent,item,location);
+    
+    __debug_indir(parent,ent);
+    
+    return flags;
 }
 
 static int __do_fs_inode_insert(struct stp_inode *parent,const struct stp_dir_item *item)
@@ -342,9 +356,13 @@ static int __do_fs_inode_insert(struct stp_inode *parent,const struct stp_dir_it
         __set_inode_dirty(sb,parent);
         entry->flags |= STP_FS_ENTRY_DIRECT;
     }
+    printf("%s:%d,nritems:%d\n",__FUNCTION__,__LINE__,location->nritems);
     
-    if(location->nritems < STP_FS_DIR_NUM) 
+    if(location->nritems < STP_FS_DIR_NUM) {
+        __set_entry_dirty(sb,entry);
         return __do_fs_entry_insert(parent,item,location);
+    }
+    
     
     //insert in the indirect dir
     location = &parent->item->entry[1];
@@ -356,8 +374,10 @@ static int __do_fs_inode_insert(struct stp_inode *parent,const struct stp_dir_it
         __set_inode_dirty(sb,parent);
         entry->flags |= STP_FS_ENTRY_INDIR1;
     }
-    if(location->nritems < STP_FS_DIRENT_MAX) 
-        return __do_fs_indir_insert(parent,item,location);
+    if(location->nritems < STP_FS_DIRENT_MAX) {
+        __set_entry_dirty(sb,entry);
+        return __do_fs_indir_insert(parent,item,location,entry);
+    }
     
     location = &parent->item->entry[2];
     if(__ent_empty(location)) {
@@ -399,7 +419,7 @@ static int __do_fs_inode_insert(struct stp_inode *parent,const struct stp_dir_it
         __set_entry_dirty(sb,entry);
         }
     
-    
+    __set_entry_dirty(sb,entry);
     return __do_fs_indir_insert(parent,item,l);
 }
 
@@ -549,6 +569,37 @@ static inline int __empty_location(const struct stp_header *location)
     return __ent_empty(location);
     
 }
+
+static inline void __debug_indir(const struct stp_inode *parent,const struct stp_fs_indir *ent)
+{
+    int i;
+    struct stp_fs_entry *entry;
+    struct rb_node *node;
+    
+    printf("debug indirectory offset:%llu,count:%llu\n",ent->location.offset,ent->location.count);
+    
+    if(!ent) {
+        printf("[ERROR]:%s,%d ent is null!\n",__FUNCTION__,__LINE__);
+        return;
+    }
+    
+    for(i = 0;i < ent->location.nritems;i++)
+    {
+        if(!(node = rb_tree_find(&parent->root,ent->index[i].offset))) {
+            printf("[ERROR]:%s,%d indir offset:%llu(%d) is null\n",__FUNCTION__,__LINE__,ent->index[i].offset,i);
+            return;
+        }
+        
+        entry = rb_entry(node,struct stp_fs_entry,node);
+        if(!entry->entry) {
+            printf("[ERROR]:%s,%d,entry(%p) entry is null\n",__FUNCTION__,__LINE__,entry);
+            return;
+        }
+        
+        __debug_entry((struct stp_fs_dirent*)entry->entry);
+    }   
+}
+
 
 static inline void __debug_entry(const struct stp_fs_dirent * ent)
 {
