@@ -30,7 +30,7 @@ static struct stp_inode * __get_stp_inode(struct stp_fs_info *sb);
 #define STP_FS_ENTRY_MMAP (1UL << 0)
 
 static void __set_fs_header(struct stp_header *dest,const struct stp_header *src);
-
+static void __set_entry_dirty(struct stp_fs_info *,struct stp_fs_entry *);
 
 static void init_root(struct stp_fs_info *sb,struct stp_inode_item *_inode)
 {
@@ -323,7 +323,8 @@ static int do_fs_super_rm_pages(struct stp_fs_info *sb,struct stp_fs_entry *entr
     
     location = (struct stp_header *)entry->entry;
     location->flags |= STP_HEADER_DELETE;
-    
+    __set_entry_dirty(sb,entry);
+
     return entry->ops->release(sb,entry);
 }
 
@@ -496,6 +497,14 @@ static void __set_fs_header(struct stp_header *dest,const struct stp_header *src
     dest->nritems = src->nritems;
 }
 
+static inline void __set_entry_dirty(struct stp_fs_info *sb,struct stp_fs_entry *entry)
+{
+    if(entry->flags & STP_FS_ENTRY_DIRTY) return;
+    
+    entry->flags |= STP_FS_ENTRY_DIRTY;
+    list_move(&sb->entry_dirty_list,&entry->dirty);    
+}
+
 static int do_fs_super_lookup(struct stp_fs_info *sb,struct stp_inode **_inode,u64 ino,off_t offset)
 {
     struct rb_node *node;
@@ -522,20 +531,25 @@ static int do_fs_super_lookup(struct stp_fs_info *sb,struct stp_inode **_inode,u
     return 0;
 }
 
-static int do_fs_super_find(struct stp_fs_info *sb,struct stp_inode **inode,u64 ino,off_t offset)
+static int do_fs_super_find(struct stp_fs_info *sb,struct stp_inode **inode,u64 ino)
 {
     struct stp_inode *_inode;
+    struct rb_node *node;
     
-    if(!sb->ops->lookup(sb,inode,ino,offset)) return 0;
+    node = rb_tree_find(&sb->root,ino);
     
-    if(!(_inode = sb->ops->allocate(sb,offset))) return -1;
-
-    *inode = _inode;
+    if(node) {
+        _inode = rb_entry(node,struct stp_inode,node);
+        *inode = _inode;
+        return 0;
+    }
     
-    return 0;
+    stp_errno = STP_FS_INO_NOEXIST;
+    return -1;
 }
 
-static struct stp_fs_entry * do_fs_super_alloc_entry(struct stp_fs_info *sb,struct stp_inode *inode,off_t offset,size_t size)
+static struct stp_fs_entry * do_fs_super_alloc_entry(struct stp_fs_info *sb,struct stp_inode *inode,off_t offset,size_t size,
+                                                     struct stp_fs_entry *parent)
 {
     struct stp_fs_entry *entry;
     
@@ -552,6 +566,9 @@ static struct stp_fs_entry * do_fs_super_alloc_entry(struct stp_fs_info *sb,stru
     list_init(&entry->list);
     list_init(&entry->lru);
     list_init(&entry->dirty);
+    list_init(&entry->sibling);
+    list_init(&entry->child);
+    entry->parent = NULL;
     entry->ops = &fs_entry_operations;
     if(offset && size) 
     {
@@ -561,6 +578,11 @@ static struct stp_fs_entry * do_fs_super_alloc_entry(struct stp_fs_info *sb,stru
     }
     
     list_move(&inode->entry_list,&entry->list);
+    
+    if(parent) {
+        entry->parent = parent;
+        list_add_tail(&parent->child,&entry->sibling);
+    }
     
     return entry;
 }
@@ -585,7 +607,7 @@ static int do_fs_super_free_pages(struct stp_fs_info *sb,struct stp_fs_entry *en
     if(!entry->entry)
         return 0;
     
-    return do_fs_super_rm_pages(sb,entry);
+    return entry->ops->rm(sb,entry);
 
 }
 
@@ -593,6 +615,12 @@ static int do_fs_super_free_inode(struct stp_fs_info *sb,struct stp_inode *inode
 {
     
     struct stp_header *location;
+    
+    assert(inode->item);
+    if((inode->item->mode & S_IFDIR) && (inode->item->nritem != 0)) {
+        stp_errno = STP_FS_DIR_NOEMPTY;
+        return -1;
+    }
     
     pthread_mutex_lock(&sb->mutex);
     
@@ -613,7 +641,8 @@ static int do_fs_super_free_inode(struct stp_fs_info *sb,struct stp_inode *inode
     
     location = &inode->item->location;
     inode->flags |= STP_FS_INODE_DIRTY;
-    inode->ops->free(inode);
+    if(inode->ops->free(inode) < 0)
+        return -1;
 
     return sb->ops->destroy_inode(sb,inode);
 }

@@ -100,12 +100,13 @@ struct stp_inode_operations {
     int (*setattr)(struct stp_inode *);
     int (*mkdir)(struct stp_inode *,const char *,size_t,struct stp_inode *);
     int (*lookup)(struct stp_inode *,const char *,size_t,u64);
-    int (*rm)(struct stp_inode *,u64 ino);
+    int (*rm)(struct stp_inode *,const char *name,size_t len,u64 *ino);
     int (*creat)(struct stp_inode *,const char *,size_t,struct stp_inode *,mode_t);
     int (*readdir)(struct stp_inode *);
     int (*destroy)(struct stp_inode *);
     int (*sync)(struct stp_inode *);
     int (*free)(struct stp_inode *);
+    int (*unlink)(struct stp_inode *);
 };
 
 #define STP_FS_INODE_CREAT  (1<<0)
@@ -142,6 +143,7 @@ struct stp_fs_entry_operations;
 struct stp_fs_entry {
     u32 flags;
     struct stp_inode *inode;
+    struct stp_fs_entry *parent;
     void * entry;
     size_t size;
     off_t offset;
@@ -149,6 +151,14 @@ struct stp_fs_entry {
     struct list list;
     struct list lru;
     struct list dirty;
+    /* tree entry
+     * direct NULL
+     * indirect 
+     *    |    \
+     * direct--direct ....
+     */
+    struct list sibling;//link all brother entry 
+    struct list child;
     const struct stp_fs_entry_operations *ops;
 };
 
@@ -192,11 +202,11 @@ struct stp_fs_operations {
     struct stp_inode* (*allocate)(struct stp_fs_info *,off_t);
     int (*free_inode)(struct stp_fs_info *,struct stp_inode *);
     int (*destroy_inode)(struct stp_fs_info *,struct stp_inode *);
-    struct stp_fs_entry * (*alloc_entry)(struct stp_fs_info *,struct stp_inode *,off_t,size_t);
+    struct stp_fs_entry * (*alloc_entry)(struct stp_fs_info *,struct stp_inode *,off_t,size_t,struct stp_fs_entry *);
     int (*free_entry)(struct stp_fs_info *,struct stp_fs_entry *);
     int (*destroy_entry)(struct stp_fs_info *,struct stp_fs_entry *);
     int (*lookup)(struct stp_fs_info *sb,struct stp_inode **inode,u64 ino,off_t offset);
-    int (*find)(struct stp_fs_info *sb,struct stp_inode **inode,u64 ino,off_t offset);
+    int (*find)(struct stp_fs_info *sb,struct stp_inode **inode,u64 ino);
     int (*free)(struct stp_fs_info *);
     int (*read)(struct stp_fs_info *,struct stp_inode *,off_t offset);
     int (*sync)(struct stp_fs_info *);

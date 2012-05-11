@@ -47,6 +47,8 @@ const char * const stp_errlist[STP_MAX_ERRNO + 1] = {
     N_("File hasn't existed"),/*STP_FS_ENTRY_NOEXIST*/
     N_("Directory entry is full"),/*STP_FS_ENTRY_FULL*/
     N_("Unknown error"),/*STP_UNKNOWN_ERROR*/
+    N_("File ino han't existed"),/*STP_FS_INO_NOEXIST */
+    N_("File Directory isn't empty"),/*STP_FS_DIR_NOEMPTY*/
     };
 
     

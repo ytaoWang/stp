@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <assert.h>
 
 #include "stp_fs.h"
 #include "stp_error.h"
@@ -16,7 +17,7 @@ static int read_btree_info(int bfd,struct stp_btree_info **,unsigned int mode);
 static int __fs_info_insert(struct stp_fs_info *,u64 pino,struct stp_dir_item *,struct stp_bnode_off *,mode_t);
 static int __btree_info_insert(struct stp_btree_info *,const struct stp_bnode_off *);
 static int __btree_info_unlink(struct stp_btree_info *,const struct stp_bnode_off *);
-static int __fs_info_unlink(struct stp_fs_info *,u64 pino,const struct stp_dir_item *,struct stp_bnode_off *);
+static int __fs_info_unlink(struct stp_fs_info *,struct stp_inode *inode,const char *name,struct stp_bnode_off *off);
 
 
 static int stp_check(const struct stp_fs_info *fs,const struct stp_btree_info *btree)
@@ -278,7 +279,10 @@ int stp_unlink(STP_FILE file,const char *filename)
 {
     struct stp_fs_info *fs;
     struct stp_btree_info *tree;
-    u64 ino = random();
+    struct stp_bnode_off off;
+    struct stp_inode *inode;
+    
+    u64 ino = 1;//parent ino
     static u64 num = 1;
     u8 flags;
     
@@ -294,15 +298,43 @@ int stp_unlink(STP_FILE file,const char *filename)
       stp_errno =  STP_INDEX_CANT_BE_WRITER;
       return -1;
   }
+  
+  memset(&off,0,sizeof(off));
+  /*
+   * unlink entry
+   */
+  if(tree->ops->search(tree,ino,&off) < 0)
+      return -1;
+  if(fs->ops->lookup(fs,&inode,off.ino,off.offset) < 0)
+      return -1;
+  if(__fs_info_unlink(fs,inode,filename,&off) < 0) {   
+      /*
+       * unlink the name corresponding inode
+       */
+      if(stp_errno != STP_FS_INO_NOEXIST) 
+          return -1;
+      if(tree->ops->search(tree,off.ino,&off)< 0) 
+          return -1;
+      if(fs->ops->lookup(fs,&inode,off.ino,off.ino) < 0)
+          return -1;
+      if(inode->ops->unlink(inode) < 0)
+          return -1;
+  }
+  
+  if(__btree_info_unlink(tree,&off) < 0)
+      return -1;
+  
   //  tree->ops->debug_btree(tree);
+  /*
   printf("%s,before delete ino:%llu,num:%llu\n",__FUNCTION__,ino,num);
   flags = tree->ops->rm(tree,ino);
   printf("%s,after delete ino:%llu,num:%llu\n",__FUNCTION__,ino,num);
   num ++;
   ino --;
+  */
   //tree->ops->debug_btree(tree);
 
-  return flags;
+  return 0;
 }
 
 static int __fs_info_insert(struct stp_fs_info *sb,u64 pino,struct stp_dir_item *key,struct stp_bnode_off *off,mode_t mode)
@@ -310,7 +342,7 @@ static int __fs_info_insert(struct stp_fs_info *sb,u64 pino,struct stp_dir_item 
     struct stp_inode *inode,*parent;
     int flags;
     
-    if(sb->ops->lookup(sb,&parent,pino) < 0) return -1;
+    if(sb->ops->find(sb,&parent,pino) < 0) return -1;
     
     flags = parent->ops->lookup(parent,key->name,key->name_len,0);
     
@@ -337,9 +369,26 @@ static int __btree_info_insert(struct stp_btree_info *tree,const struct stp_bnod
     return tree->ops->insert(tree,off,BTREE_OVERFLAP);
 }
 
-static int __fs_info_unlink(struct stp_fs_info *sb,u64 pino,const struct stp_dir_item *item,struct stp_bnode_off *off)
+static int __fs_info_unlink(struct stp_fs_info *sb,struct stp_inode *inode,const char *name,struct stp_bnode_off *off)
 {
-    return -1;
+    struct stp_inode *_inode;
+    u64 ino;
+    size_t len = strlen(name);
+    
+    //rm entry
+    if(inode->ops->rm(inode,name,len,&ino) < 0)
+        return -1;
+    off->ino = ino;
+    //search corresponding _inode
+    if(sb->ops->find(sb,&_inode,ino) < 0) 
+        return -1;
+    
+    assert(_inode->item);
+    off->offset = _inode->item->location.offset;
+    off->len = _inode->item->location.count;
+    off->flags = _inode->item->location.flags;
+
+    return _inode->ops->unlink(_inode);
 }
 
 static int __btree_info_unlink(struct stp_btree_info *sb,const struct stp_bnode_off *off)

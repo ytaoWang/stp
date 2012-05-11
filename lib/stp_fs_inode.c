@@ -13,7 +13,7 @@
 #include "list.h"
 #include "rb_tree.h"
 
-static struct stp_fs_entry *__get_fs_entry(struct stp_fs_info *sb,struct stp_inode *inode);
+static struct stp_fs_entry *__get_fs_entry(struct stp_fs_info *sb,struct stp_inode *inode,struct stp_fs_entry *);
 static inline void __set_fs_header(struct stp_header *,const struct stp_header *);
 static inline void __set_inode_dirty(struct stp_fs_info *sb,struct stp_inode *inode);
 static inline void __set_entry_dirty(struct stp_fs_info *sb,struct stp_fs_entry *entry);
@@ -21,7 +21,10 @@ static inline void __set_entry_dirty(struct stp_fs_info *sb,struct stp_fs_entry 
 static inline int __empty_location(const struct stp_header *location);
 static inline void __debug_entry(const struct stp_fs_dirent * ent);
 static inline void __debug_indir(const struct stp_inode *,const struct stp_fs_indir *);
-
+static int __rm_inode_entry(struct stp_inode *,struct stp_header *,struct stp_fs_entry *);
+static int __rm_inode_indir(struct stp_inode *,struct stp_header *,struct stp_fs_entry *);
+static struct stp_fs_entry* __do_read_entry(struct stp_inode *,struct stp_header *,u32,struct stp_fs_entry *);
+static inline int __equal_location(const struct stp_header *l1,const struct stp_header *l2);
 
 static int do_fs_inode_setattr(struct stp_inode *inode)
 {
@@ -63,11 +66,13 @@ static inline void __set_inode_dirty(struct stp_fs_info *sb,struct stp_inode *in
 }
 
 
-static int __location_entry_exist(const struct stp_header *location,struct stp_inode *parent,const struct stp_dir_item *key,struct stp_dir_item *origin)
+static int __location_entry_exist(const struct stp_header *location,struct stp_inode *parent,\
+                                  const struct stp_dir_item *key,struct stp_fs_entry **_h,struct stp_fs_entry *pentry)
 {
     struct stp_fs_info *sb = parent->fs;
     struct stp_fs_entry *entry;
     struct rb_node *node;
+    struct stp_dir_item *origin;
     
     origin = NULL;
     
@@ -77,12 +82,13 @@ static int __location_entry_exist(const struct stp_header *location,struct stp_i
     if((node = rb_tree_find(&parent->root,location->offset))) {
         entry = rb_entry(node,struct stp_fs_entry,node);
     } else {
-        if(!(entry = sb->ops->alloc_entry(sb,parent,location->offset,location->count))) {
+        if(!(entry = sb->ops->alloc_entry(sb,parent,location->offset,location->count,pentry))) {
             fprintf(stderr,"[ERROR]:cann't allocate memory.\n");
             return -1;
         }
     
         if(entry->ops->read(sb,entry) < 0) return -1;
+        entry->flags |= STP_FS_ENTRY_DIRECT;
     }
     //search in entry
     struct stp_fs_dirent *ent;
@@ -90,14 +96,18 @@ static int __location_entry_exist(const struct stp_header *location,struct stp_i
     ent = (struct stp_fs_dirent *)entry->entry;
     
     //search in entry
-    if((origin = bsearch(key,ent->item,ent->location.nritems,sizeof(struct stp_dir_item),dir_item_cmp))) return 0;
+    if((origin = bsearch(key,ent->item,ent->location.nritems,sizeof(struct stp_dir_item),dir_item_cmp))) {
+        if(_h) *_h = entry;
+        return 0;
+    }
     
     stp_errno = STP_FS_ENTRY_NOEXIST;
     
     return -1;
 }
 
-static int __location_indir_exist(const struct stp_header *location,struct stp_inode *parent,const struct stp_dir_item *key,struct stp_dir_item *origin)
+static int __location_indir_exist(const struct stp_header *location,struct stp_inode *parent,const struct stp_dir_item *key,\
+                                  struct stp_fs_entry **_h,struct stp_fs_entry *pentry)
 {
     struct stp_fs_info *sb = parent->fs;
     struct stp_fs_entry *entry;
@@ -105,12 +115,10 @@ static int __location_indir_exist(const struct stp_header *location,struct stp_i
     struct stp_fs_indir *in;
     int i,flags;
     
-    origin = NULL;
-    
     if((node = rb_tree_find(&parent->root,location->offset))) {
         entry = rb_entry(node,struct stp_fs_entry,node);
     } else {
-        if(!(entry = sb->ops->alloc_entry(sb,parent,location->offset,location->count))) {
+        if(!(entry = sb->ops->alloc_entry(sb,parent,location->offset,location->count,pentry))) {
             fprintf(stderr,"[ERROR]:cann't allocate memory for indirect entry.\n");
             return -1;
         }
@@ -118,14 +126,16 @@ static int __location_indir_exist(const struct stp_header *location,struct stp_i
             fprintf(stderr,"[ERROR]:read pages for indirect entry.\n");
             return -1;
         }
-        
+        entry->flags |= STP_FS_ENTRY_INDIR1;
     }
     
     in = (struct stp_fs_indir *)entry->entry;
     for(i = 0;i < in->location.nritems;i++)
     {
-        flags = __location_entry_exist(&in->index[i],parent,key,origin);
-        if(!flags) return 0;
+        flags = __location_entry_exist(&in->index[i],parent,key,_h,entry);
+        if(!flags) 
+            return 0;
+        
         if(flags < 0 && stp_errno != STP_FS_ENTRY_NOEXIST)
             return -1;
     }
@@ -136,7 +146,8 @@ static int __location_indir_exist(const struct stp_header *location,struct stp_i
 }
 
 
-static int _do_fs_inode_exist(struct stp_inode *parent,u64 ino,const char *filename,size_t len,int *found,struct stp_dir_item *origin)
+static int _do_fs_inode_exist(struct stp_inode *parent,u64 ino,const char *filename,size_t len,int *found,\
+                              struct stp_fs_entry **_h)
 {
     struct stp_fs_info *sb = parent->fs;
     struct stp_fs_entry *entry;
@@ -148,7 +159,6 @@ static int _do_fs_inode_exist(struct stp_inode *parent,u64 ino,const char *filen
     
     assert(parent->item->mode & S_IFDIR);    
     *found = 0;
-    origin = NULL;
     
     memset(&key,0,sizeof(key));    
     key.ino = ino;
@@ -160,7 +170,7 @@ static int _do_fs_inode_exist(struct stp_inode *parent,u64 ino,const char *filen
     
     if(!location || __empty_location(location)) return 0;
 
-    if(!(flags = __location_entry_exist(location,parent,&key,origin))) {
+    if(!(flags = __location_entry_exist(location,parent,&key,_h,NULL))) {
         *found = 1;
         return 0;
     }
@@ -172,7 +182,7 @@ static int _do_fs_inode_exist(struct stp_inode *parent,u64 ino,const char *filen
     location = &parent->item->entry[1];
     if(!location || __empty_location(location)) return 0;
     
-    if(!__location_indir_exist(location,parent,&key,origin)) {
+    if(!__location_indir_exist(location,parent,&key,_h,NULL)) {
         *found = 1;
         return 0;
     }
@@ -184,25 +194,25 @@ static int _do_fs_inode_exist(struct stp_inode *parent,u64 ino,const char *filen
    if((node = rb_tree_find(&parent->root,location->offset))) {
         entry = rb_entry(node,struct stp_fs_entry,node);
     } else {
-        if(!(entry = sb->ops->alloc_entry(sb,parent,location->offset,location->count))) {
+       if(!(entry = sb->ops->alloc_entry(sb,parent,location->offset,location->count,NULL))) {
             fprintf(stderr,"[ERROR]:cann't allocate memory for indirect entry.\n");
             return -1;
         }
         if(entry->ops->read(sb,entry) < 0) {
             fprintf(stderr,"[ERROR]:read pages for indirect entry.\n");
             return -1;
-        }   
+        }  
+        entry->flags |= STP_FS_ENTRY_INDIR2;
     }
  
    in = (struct stp_fs_indir *)entry->entry;
    for(i = 0;i< in->location.nritems;i++)
    {
-       if(!__location_indir_exist(&in->index[i],parent,&key,origin))
+       if(!__location_indir_exist(&in->index[i],parent,&key,_h,entry))
        {
            *found = 1;
            return 0;
        }
-       
    }
    
    return 0;
@@ -213,7 +223,7 @@ static int do_fs_inode_lookup(struct stp_inode *inode,const char *filename,size_
     int found;
     struct stp_dir_item *origin;
     
-    if(_do_fs_inode_exist(inode,ino,filename,len,&found,origin) < 0)
+    if(_do_fs_inode_exist(inode,ino,filename,len,&found,NULL) < 0)
         return -1;
     
     if(!found) {
@@ -235,28 +245,18 @@ static void __copy_dir_item(struct stp_dir_item *dest,const struct stp_dir_item 
 }
 
 
-static int __do_fs_entry_insert(struct stp_inode *parent,const struct stp_dir_item *item,struct stp_header *location)
+static int __do_fs_entry_insert(struct stp_inode *parent,const struct stp_dir_item *item,struct stp_header *location,struct stp_fs_entry *pentry)
 {
+    
     struct stp_fs_info *sb = parent->fs;
     struct stp_fs_entry *entry;
-    struct rb_node *node;
-    
-    if((node = rb_tree_find(&parent->root,location->offset))) {
-        entry = rb_entry(node,struct stp_fs_entry,node);
-    } else {
-        if(!(entry = sb->ops->alloc_entry(sb,parent,location->offset,location->count))) {
-            fprintf(stderr,"[ERROR]:cann't allocate  memory in %s\n",__FUNCTION__);
-            return -1;
-        }
-        
-        if(entry->ops->read(sb,entry) < 0) return -1;
-    }
-    
     //search in entry
     struct stp_fs_dirent *ent;
     
+    if(!(entry = __do_read_entry(parent,location,STP_FS_ENTRY_DIRECT,pentry)))
+        return -1;
+    
     ent = (struct stp_fs_dirent *)entry->entry;
-    entry->flags |= STP_FS_ENTRY_DIRECT;
     
     if(ent->location.nritems == STP_FS_DIR_NUM) 
     {
@@ -286,27 +286,18 @@ static inline int __ent_empty(const struct stp_header *location)
 }
 
 
-static int __do_fs_indir_insert(struct stp_inode *parent,const struct stp_dir_item *item,struct stp_header *header)
+static int __do_fs_indir_insert(struct stp_inode *parent,const struct stp_dir_item *item,struct stp_header *header,struct stp_fs_entry *pentry)
 {
     struct stp_fs_info *sb = parent->fs;
     struct stp_fs_entry *entry;
-    struct rb_node *node;
     struct stp_header *location;
-    
-    if((node = rb_tree_find(&parent->root,header->offset))) {
-        entry = rb_entry(node,struct stp_fs_entry,node);
-    } else {
-        if(!(entry = sb->ops->alloc_entry(sb,parent,header->offset,header->count))) {
-            fprintf(stderr,"[ERROR]:cann't allocate  memory in %s\n",__FUNCTION__);
-            return -1;
-        }
-        entry->flags |= STP_FS_ENTRY_INDIR1;
-        if(entry->ops->read(sb,entry) < 0) return -1;
-    }
     
     //search in entry
     struct stp_fs_indir *ent;
-    
+
+    if(!(entry = __do_read_entry(parent,header,STP_FS_ENTRY_INDIR1,pentry))) 
+        return -1;
+
     ent = (struct stp_fs_indir *)entry->entry;
 
     int i = 0;
@@ -321,23 +312,17 @@ static int __do_fs_indir_insert(struct stp_inode *parent,const struct stp_dir_it
         i++;
     }
     
-    /*
-    if(ent->location.nritems !=0 && i == ent->location.nritems) {
-        stp_errno = STP_FS_ENTRY_FULL;
-        return -1;
-    }
-    */
-    
     location = &ent->index[i];
     struct stp_fs_entry *it;
     //allocate direct entry,then insert into it
     if(__ent_empty(location)) {
-        if(!(it = __get_fs_entry(sb,parent)))
+        if(!(it = __get_fs_entry(sb,parent,entry)))
             return -1;
         __set_fs_header(location,(struct stp_header *)it->entry);
         __set_entry_dirty(sb,it);
         header->nritems ++;
         ent->location.nritems ++;
+        it->flags |= STP_FS_ENTRY_DIRECT;
     } else {
         //find the entry
         struct rb_node *node;
@@ -356,7 +341,7 @@ static int __do_fs_indir_insert(struct stp_inode *parent,const struct stp_dir_it
     }
     
     
-    int flags =  __do_fs_entry_insert(parent,item,(struct stp_header *)it->entry);
+    int flags =  __do_fs_entry_insert(parent,item,(struct stp_header *)it->entry,it);
     if(!flags) {
         location->nritems ++;
         __set_entry_dirty(sb,it);
@@ -378,7 +363,7 @@ static int __do_fs_inode_insert(struct stp_inode *parent,const struct stp_dir_it
     location = &parent->item->entry[0];
     if(__ent_empty(location)) {
         //allocate entry
-        if(!(entry = __get_fs_entry(sb,parent))) 
+        if(!(entry = __get_fs_entry(sb,parent,NULL))) 
             return -1;
         __set_fs_header(location,(struct stp_header *)entry->entry);
         __set_inode_dirty(sb,parent);
@@ -404,7 +389,7 @@ static int __do_fs_inode_insert(struct stp_inode *parent,const struct stp_dir_it
     
     if(location->nritems < STP_FS_DIR_NUM) {
         __set_entry_dirty(sb,entry);
-        return __do_fs_entry_insert(parent,item,location);
+        return __do_fs_entry_insert(parent,item,location,NULL);
     }
     
     
@@ -412,7 +397,7 @@ static int __do_fs_inode_insert(struct stp_inode *parent,const struct stp_dir_it
     location = &parent->item->entry[1];
     if(__ent_empty(location)) {
         //allocate entry
-        if(!(entry = __get_fs_entry(sb,parent))) 
+        if(!(entry = __get_fs_entry(sb,parent,NULL))) 
             return -1;
         __set_fs_header(location,(struct stp_header *)entry->entry);
         __set_inode_dirty(sb,parent);
@@ -420,14 +405,14 @@ static int __do_fs_inode_insert(struct stp_inode *parent,const struct stp_dir_it
     }
     if(location->nritems <= STP_FS_DIRENT_MAX) {
         __set_entry_dirty(sb,entry);
-        return __do_fs_indir_insert(parent,item,location);
+        return __do_fs_indir_insert(parent,item,location,NULL);
     }
     
     //insert in the in-indirect entry
     location = &parent->item->entry[2];
     if(__ent_empty(location)) {
         //allocate entry
-        if(!(entry = __get_fs_entry(sb,parent))) 
+        if(!(entry = __get_fs_entry(sb,parent,NULL))) 
             return -1;
         __set_fs_header(location,(struct stp_header *)entry->entry);
         __set_inode_dirty(sb,parent);
@@ -442,13 +427,7 @@ static int __do_fs_inode_insert(struct stp_inode *parent,const struct stp_dir_it
     struct stp_fs_indir *ent;
     
     ent = (struct stp_fs_indir *)entry->entry;
-    
-    /*
-    while(i < location->nritems && \
-          ent->index[i].nritems == STP_FS_DIRENT_MAX)
-        //search the unused item
-        i++;
-    */
+
     int flags;
     while(i < location->nritems) {
         struct stp_header *l;
@@ -456,7 +435,7 @@ static int __do_fs_inode_insert(struct stp_inode *parent,const struct stp_dir_it
         l = &ent->index[i];
         if(__ent_empty(l)) {
         struct stp_fs_entry *item;
-        if(!(item = __get_fs_entry(sb,parent)))
+        if(!(item = __get_fs_entry(sb,parent,entry)))
             return -1;
         __set_fs_header(&ent->index[i],(struct stp_header *)item->entry);
         __set_entry_dirty(sb,entry);
@@ -464,7 +443,7 @@ static int __do_fs_inode_insert(struct stp_inode *parent,const struct stp_dir_it
         }
     
         __set_entry_dirty(sb,entry);
-        flags  = __do_fs_indir_insert(parent,item,l);
+        flags  = __do_fs_indir_insert(parent,item,l,entry);
         if(!flags || (flags < 0 && stp_errno != STP_FS_ENTRY_FULL))
             return flags;
     }
@@ -495,10 +474,53 @@ static int do_fs_inode_mkdir(struct stp_inode *parent,const char *filename,size_
 
 }
 
-static int do_fs_inode_rm(struct stp_inode *parent,u64 ino)
+static int do_fs_inode_rm(struct stp_inode *parent,const char *filename,size_t len,u64 *ino)
 {
+    struct stp_fs_info *sb = parent->fs;
+    struct stp_fs_entry *entry,*pentry;
+    int found,i;
     
-    return -1;
+    if(_do_fs_inode_exist(parent,0,filename,len,&found,&entry) < 0)
+        return -1;
+    if(found < 0) 
+        return -1;
+    if(!(entry->flags & STP_FS_ENTRY_DIRECT)) {
+        stp_errno = STP_INVALID_ARGUMENT;
+        return -1;
+    }
+    
+    struct stp_fs_dirent *ent = (struct stp_fs_dirent *)entry->entry;
+    
+    for(i = 0; i < ent->location.nritems;++i) {
+        if(!strcmp(ent->item[i].name,filename)) 
+            break;
+    }
+    
+    while(i < ent->location.nritems - 1) {
+        __copy_dir_item(&ent->item[i],&ent->item[i+1]);
+        i++;
+    }
+    
+    ent->location.nritems --;
+    parent->item->nritem --;
+    
+    __set_entry_dirty(sb,entry);
+    __set_inode_dirty(sb,parent);
+    /*
+     * remove the correspoding entry 
+     * from parent
+     */
+    pentry = entry->parent;
+    if(!pentry && !__equal_location(&parent->item->entry[0],(struct stp_header *)pentry->entry)) {
+        stp_errno = STP_FS_UNKNOWN_ERROR;
+        return -1;
+    }
+    
+    struct stp_fs_indir* fi = (struct stp_fs_indir *)pentry->entry;
+    fi->location.nritems --;
+    __set_entry_dirty(sb,pentry);
+
+    return 0;
 }
 
 static int do_fs_inode_create(struct stp_inode *parent,const char *filename,size_t len,struct stp_inode *inode,mode_t mode)
@@ -571,22 +593,46 @@ static int do_fs_inode_destroy(struct stp_inode *inode)
 static int do_fs_inode_free(struct stp_inode *inode)
 {
     struct stp_fs_info *sb = inode->fs;
-    struct stp_fs_entry *dir,*ndir;
+    struct stp_fs_entry *entry;
+
+    if(!(inode->item->mode & S_IFDIR))
+        return 0;
+    /*
+     * free all data associated with inode
+     */
+    struct stp_header *location;
     
-    list_for_each_entry_del(dir,ndir,&inode->entry_list,list) 
-    {
-        dir->ops->free_entry(sb,dir);
-        list_del_element(&dir->list);
+    location = &inode->item->entry[0];
+    if(!__ent_empty(location)) {
+        if((entry = __do_read_entry(inode,location,STP_FS_ENTRY_DIRECT,NULL))) {
+            
+            
+        }
     }
     
     return inode->ops->destroy(inode);
 }
 
-static struct stp_fs_entry* __get_fs_entry(struct stp_fs_info *sb,struct stp_inode *inode)
+static int do_fs_inode_unlink(struct stp_inode *inode)
+{
+    struct stp_fs_info *sb = inode->fs;
+    
+    assert(inode->item);
+    
+    if(inode->item->nlink > 1) {
+        inode->item->nlink --;
+        __set_inode_dirty(sb,inode);
+        return 0;
+    }
+    
+    return sb->ops->free_inode(sb,inode);
+}
+
+static struct stp_fs_entry* __get_fs_entry(struct stp_fs_info *sb,struct stp_inode *inode,struct stp_fs_entry *pentry)
 {
     struct stp_fs_entry *entry;
     
-    if(!(entry = sb->ops->alloc_entry(sb,inode,0,0))) return NULL;
+    if(!(entry = sb->ops->alloc_entry(sb,inode,0,0,pentry))) return NULL;
     if(entry->ops->alloc(sb,inode,entry) < 0) {
         sb->ops->free_entry(sb,entry);
         return NULL;
@@ -663,6 +709,78 @@ static inline void __debug_entry(const struct stp_fs_dirent * ent)
     
 }
 
+/*
+ * mark the entry delete.
+ */
+static int __rm_inode_entry(struct stp_inode *inode,struct stp_header *location,struct stp_fs_entry *pentry)
+{   
+    struct stp_fs_entry *entry;
+    struct stp_fs_dirent *ent;
+    struct stp_fs_info *sb = inode->fs;
+    
+    if(!(entry = __do_read_entry(inode,location,STP_FS_ENTRY_DIRECT,pentry)))
+        return -1;
+    
+    ent = (struct stp_fs_dirent *)entry->entry;
+    if(ent->location.nritems != 0) {
+        stp_errno = STP_FS_DIR_NOEMPTY;
+        return -1;
+    }
+    
+    return entry->ops->rm(sb,entry);
+}
+
+static int __rm_inode_indir(struct stp_inode *inode,struct stp_header *location,struct stp_fs_entry *pentry)
+{
+    struct stp_fs_entry *entry;
+    struct stp_fs_indir *ent;
+    struct stp_fs_info *sb = inode->fs;
+    
+    if(!(entry = __do_read_entry(inode,location,STP_FS_ENTRY_INDIR1,pentry)))
+        return -1;
+    
+    ent = (struct stp_fs_indir *)entry->entry;
+    int i = 0;
+    
+    for(i = 0;i < ent->location.nritems;i++) {
+        if(ent->index[i].nritems != 0) {
+            stp_errno = STP_FS_DIR_NOEMPTY;
+            return -1;
+        }
+        
+        if(__rm_inode_entry(inode,&ent->index[i],entry) < 0)
+            return -1;
+     
+        location->nritems --;
+    }
+}
+
+static struct stp_fs_entry * __do_read_entry(struct stp_inode *parent,struct stp_header *location,u32 flags,struct stp_fs_entry *pentry)
+{
+    struct stp_fs_info *sb = parent->fs;
+    struct stp_fs_entry *entry;
+    struct rb_node *node;
+    
+    if((node = rb_tree_find(&parent->root,location->offset))) {
+        entry = rb_entry(node,struct stp_fs_entry,node);
+    } else {
+        if(!(entry = sb->ops->alloc_entry(sb,parent,location->offset,location->count,pentry))) {
+            fprintf(stderr,"[ERROR]:cann't allocate  memory in %s\n",__FUNCTION__);
+            return NULL;
+        }
+        
+        if(entry->ops->read(sb,entry) < 0) return NULL;
+        entry->flags |= flags;
+    }
+
+    return entry;
+}
+
+static inline int __equal_location(const struct stp_header *l1,const struct stp_header *l2)
+{
+    return (l1->offset == l2->offset) && (l1->count == l2->count);
+}
+
 
 const struct stp_inode_operations inode_operations = {
     .init = do_fs_inode_init,
@@ -674,6 +792,5 @@ const struct stp_inode_operations inode_operations = {
     .destroy = do_fs_inode_destroy,
     .free = do_fs_inode_free,
     .lookup = do_fs_inode_lookup,
+    .unlink = do_fs_inode_unlink,
 };
-
-    
