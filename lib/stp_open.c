@@ -218,7 +218,7 @@ int stp_close(STP_FILE pfile)
     munmap(fs->super,FS_SUPER_SIZE);
     close(fs->fd);
     free(fs);
-    btree->ops->debug_btree(btree);
+    //btree->ops->debug_btree(btree);
     btree->ops->destroy(btree);
     printf("__function__:%s,flags:%d,nrkeys:%d\n",__FUNCTION__,btree->super->root.flags,btree->super->nritems);
     fsync(btree->fd);

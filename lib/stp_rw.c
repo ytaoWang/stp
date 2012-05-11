@@ -39,6 +39,8 @@ int stp_stat(STP_FILE pfile,u64 ino,struct stat *buf)
     struct stp_fs_info * fs = pfile->fs;
     struct stp_btree_info *btree = pfile->tree;
     struct stp_bnode_off off;
+    struct stp_inode *inode;
+
     int ret;
     
     if(!buf) {
@@ -49,19 +51,19 @@ int stp_stat(STP_FILE pfile,u64 ino,struct stat *buf)
     memset(&off,0,sizeof(off));
     if(ino == 1) {
         __copy_stat(buf,&fs->super->root);
-    } else {
-        ret = btree->ops->search(btree,ino,&off);
-        /*
-         * read from fs 
-         *
+        return 0;
+    } 
+    ret = btree->ops->search(btree,ino,&off);
+    if(ret < 0) return ret;
+    /*
+     * read from fs 
+     *
          */
+    if(fs->ops->lookup(fs,&inode,off.ino,off.offset) < 0)
+        return -1;
     
-        printf("%s:%d,ino:%llu(%llu),offset:%llu,size:%llu,ret:%d\n",__FUNCTION__,__LINE__,off.ino,ino,off.offset,off.len,ret);
-        
-        if(ret < 0) return ret;
-    }
+    printf("%s:%d,ino:%llu(%llu),offset:%llu,size:%llu,ret:%d\n",__FUNCTION__,__LINE__,off.ino,ino,off.offset,off.len,ret);
+    __copy_stat(buf,inode->item);
+    return 0;
     
-    if(!buf) return 0;
-    
-    return fstat(btree->fd,buf);
 }

@@ -42,9 +42,10 @@
 #define STP_FS_ENTRY_EXIST 	       38
 #define STP_FS_ENTRY_NOEXIST       39
 #define STP_FS_ENTRY_FULL          40
+#define STP_FS_UNKNOWN_ERROR       41
 
 #define STP_MIN_ERRNO             0
-#define STP_MAX_ERRNO             40
+#define STP_MAX_ERRNO             41
 
 #define N_(s)  (s)
 #define _(s)  ((const char *)s)

@@ -32,7 +32,7 @@ POST_INSTALL = :
 NORMAL_UNINSTALL = :
 PRE_UNINSTALL = :
 POST_UNINSTALL = :
-bin_PROGRAMS = stp$(EXEEXT)
+bin_PROGRAMS = ../bin/stp$(EXEEXT)
 subdir = test
 DIST_COMMON = $(srcdir)/Makefile.am $(srcdir)/Makefile.in
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
@@ -45,9 +45,10 @@ CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
 am__installdirs = "$(DESTDIR)$(bindir)"
 PROGRAMS = $(bin_PROGRAMS)
-am_stp_OBJECTS = test_bitmap.$(OBJEXT)
-stp_OBJECTS = $(am_stp_OBJECTS)
-stp_DEPENDENCIES = $(top_srcdir)/lib/libstp.a
+am____bin_stp_OBJECTS = test_bitmap.$(OBJEXT)
+___bin_stp_OBJECTS = $(am____bin_stp_OBJECTS)
+___bin_stp_DEPENDENCIES = $(top_srcdir)/lib/libstp.a
+am__dirstamp = $(am__leading_dot)dirstamp
 DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)
 depcomp =
 am__depfiles_maybe =
@@ -55,8 +56,8 @@ COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
 CCLD = $(CC)
 LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
-SOURCES = $(stp_SOURCES)
-DIST_SOURCES = $(stp_SOURCES)
+SOURCES = $(___bin_stp_SOURCES)
+DIST_SOURCES = $(___bin_stp_SOURCES)
 ETAGS = etags
 CTAGS = ctags
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
@@ -144,8 +145,8 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-stp_SOURCES = test_bitmap.c
-stp_LDADD = $(top_srcdir)/lib/libstp.a
+___bin_stp_SOURCES = test_bitmap.c
+___bin_stp_LDADD = $(top_srcdir)/lib/libstp.a
 AM_CFLAGS = -lpthread -I$(top_srcdir)/include -D_GNU_SOURCE
 all: all-am
 
@@ -218,9 +219,12 @@ uninstall-binPROGRAMS:
 
 clean-binPROGRAMS:
 	-test -z "$(bin_PROGRAMS)" || rm -f $(bin_PROGRAMS)
-stp$(EXEEXT): $(stp_OBJECTS) $(stp_DEPENDENCIES) 
-	@rm -f stp$(EXEEXT)
-	$(LINK) $(stp_OBJECTS) $(stp_LDADD) $(LIBS)
+../bin/$(am__dirstamp):
+	@$(MKDIR_P) ../bin
+	@: > ../bin/$(am__dirstamp)
+../bin/stp$(EXEEXT): $(___bin_stp_OBJECTS) $(___bin_stp_DEPENDENCIES) ../bin/$(am__dirstamp)
+	@rm -f ../bin/stp$(EXEEXT)
+	$(LINK) $(___bin_stp_OBJECTS) $(___bin_stp_LDADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
@@ -344,6 +348,7 @@ clean-generic:
 distclean-generic:
 	-test -z "$(CONFIG_CLEAN_FILES)" || rm -f $(CONFIG_CLEAN_FILES)
 	-test . = "$(srcdir)" || test -z "$(CONFIG_CLEAN_VPATH_FILES)" || rm -f $(CONFIG_CLEAN_VPATH_FILES)
+	-rm -f ../bin/$(am__dirstamp)
 
 maintainer-clean-generic:
 	@echo "This command is intended for maintainers to use"

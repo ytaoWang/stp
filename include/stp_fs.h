@@ -195,7 +195,7 @@ struct stp_fs_operations {
     struct stp_fs_entry * (*alloc_entry)(struct stp_fs_info *,struct stp_inode *,off_t,size_t);
     int (*free_entry)(struct stp_fs_info *,struct stp_fs_entry *);
     int (*destroy_entry)(struct stp_fs_info *,struct stp_fs_entry *);
-    int (*lookup)(struct stp_fs_info *sb,struct stp_inode **inode,u64 ino);
+    int (*lookup)(struct stp_fs_info *sb,struct stp_inode **inode,u64 ino,off_t offset);
     int (*find)(struct stp_fs_info *sb,struct stp_inode **inode,u64 ino,off_t offset);
     int (*free)(struct stp_fs_info *);
     int (*read)(struct stp_fs_info *,struct stp_inode *,off_t offset);

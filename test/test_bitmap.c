@@ -39,9 +39,12 @@ int main_testbitmap(int argc,char *argv[])
     return 0;
 }
 
+static void print_stat(const struct stat *st);
+
 int main(int argc,char *argv[]) 
 {
     STP_FILE file;
+    struct stat stbuf;
     u64 ino,num;
     char name[10];
     
@@ -72,7 +75,7 @@ int main(int argc,char *argv[])
         printf("create file:%s\n",name);
         if(stp_creat(file,name,S_IRWXU|S_IRWXO|S_IRWXG) < 0) {
         //if(stp_unlink(file,"test1") < 0) {
-            printf("creat file test1 error:%s,errno:%d\n",stp_strerror(stp_errno),stp_errno);
+            printf("creat file %s error:%s,errno:%d\n",name,stp_strerror(stp_errno),stp_errno);
         }
         ino ++;
     }
@@ -82,19 +85,34 @@ int main(int argc,char *argv[])
     /*
      * test b+tree search
      **/
-    if(stp_stat(file,ino,NULL) < 0) {
+    if(stp_stat(file,ino,&stbuf) < 0) {
         fprintf(stderr,"stat file ino:%llu,error:%s\n",ino,stp_strerror(stp_errno));
     }
+    else print_stat(&stbuf);
     
     ino = 1;
     
-    if(stp_stat(file,ino,NULL) < 0) {
+    if(stp_stat(file,ino,&stbuf) < 0) {
         fprintf(stderr,"stat file ino:%llu,error:%s\n",ino,stp_strerror(stp_errno));
-    }
+    } else print_stat(&stbuf);
     
     /*
      * test destroy
      */
     stp_close(file);
     return 0;
+}
+
+
+static void print_stat(const struct stat *st)
+{
+    char buf[20];
+    
+    printf("ino:%lu,size:%lu\n",st->st_ino,st->st_size);
+    memset(buf,0,20);
+    strftime(buf,20,"%Y-%m-%d %H:%M:%S",localtime(&st->st_atime));
+    printf("access time:%s\n",buf);
+    memset(buf,0,20);
+    strftime(buf,20,"%Y-%m-%d %H:%M:%S",localtime(&st->st_mtime));
+    printf("modify time:%s\n",buf);
 }

@@ -21,8 +21,13 @@ static umem_cache_t *fs_entry_slab = NULL;//for stp_fs_dir size 36
 
 static struct stp_inode * __get_stp_inode(struct stp_fs_info *sb);
 
-#define FS_ITEM_ENTRY (1<<0)
+#define FS_ITEM_ENTRY (1UL <<0)
 
+#define PAGE_SHIFT (12)
+#define PAGE_MASK (~((1UL << PAGE_SHIFT) - 1))
+#define PAGE_ALIGN(x) (!(x & ~PAGE_MASK))
+
+#define STP_FS_ENTRY_MMAP (1UL << 0)
 
 static void __set_fs_header(struct stp_header *dest,const struct stp_header *src);
 
@@ -35,16 +40,16 @@ static void init_root(struct stp_fs_info *sb,struct stp_inode_item *_inode)
     
     inode->item = _inode;
     
-    if(!inode->item->ino) inode->item->ino = 1;
+    if(!inode->item->ino) {
+        inode->item->ino = 1;
+        inode->ops->init(inode);
+    }
     
     //location for root inode
     inode->item->location.offset = sizeof(struct stp_fs_super) - sizeof(struct stp_inode_item);
     inode->item->location.count = sizeof(struct stp_inode_item);
-    inode->item->location.flags = 0;
-    inode->item->location.nritems = 0;
     
     init_rb_node(&inode->node,inode->item->ino);
-    inode->ops->init(inode);
     inode->item->mode |= S_IFDIR;
     rb_tree_insert(&sb->root,&inode->node);
     list_move(&sb->inode_list,&inode->list);
@@ -186,11 +191,11 @@ static struct stp_inode * do_fs_super_allocate(struct stp_fs_info * super,off_t 
 
     printf("%s:%d,inode:%p,flag:%d\n",__FUNCTION__,__LINE__,inode,\
            inode->flags);
+    inode->ops->init(inode);
     }
 
     init_rb_node(&inode->node,inode->item->ino);
     init_rb_root(&inode->root,NULL);
-    inode->ops->init(inode);
 
     pthread_mutex_lock(&super->mutex);
 
@@ -225,16 +230,16 @@ static int do_fs_super_alloc_pages(struct stp_fs_info *sb,struct stp_inode *inod
     sb->super->total_bytes += entry->size;
     
     pthread_mutex_unlock(&sb->mutex);
-    
-    if((entry->entry = mmap(NULL,entry->size,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0)) == MAP_FAILED) {
-        stp_errno = STP_MALLOC_ERROR;
 
-        pthread_mutex_lock(&sb->mutex);
-        sb->offset -= entry->size;
-        pthread_mutex_unlock(&sb->mutex);
-
-        return -1;
-    }
+    /*
+    if(PAGE_ALIGN(entry->offset)) {
+        if((entry->entry = mmap(NULL,entry->size,PROT_READ|PROT_WRITE,MAP_SHARED,sb->fd,entry->offset)) == MAP_FAILED) 
+            goto __fail;
+        
+    } else 
+    */
+        if((entry->entry = mmap(NULL,entry->size,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0)) == MAP_FAILED) 
+            goto __fail;
     
     location = (struct stp_header *)entry->entry;
     location->offset = entry->offset;
@@ -253,18 +258,33 @@ static int do_fs_super_alloc_pages(struct stp_fs_info *sb,struct stp_inode *inod
     //list_move(&sb->entry_list,&entry->list);
     
     return 0;
+ __fail:
+    entry->entry = NULL;
+    stp_errno = STP_MALLOC_ERROR;
+
+    pthread_mutex_lock(&sb->mutex);
+    sb->offset -= entry->size;
+    sb->super->bytes_used -= entry->size;
+    sb->super->total_bytes -= entry->size;
+    pthread_mutex_unlock(&sb->mutex);
+
+    return -1;
+
 }
 
 static int do_fs_super_read_pages(struct stp_fs_info *sb,struct stp_fs_entry *entry)
 {
     assert(entry->offset && entry->size);
     
-    if(!(entry->offset % getpagesize()))
+    if(PAGE_ALIGN(entry->offset))
     {
         if((entry->entry = mmap(NULL,entry->size,PROT_READ|PROT_WRITE,MAP_SHARED,sb->fd,entry->offset)) == MAP_FAILED) {
             stp_errno = STP_MALLOC_ERROR;
             return -1;
         }
+        
+        entry->flags |= STP_FS_ENTRY_MMAP;
+        
     } else {
         if((entry->entry = mmap(NULL,entry->size,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0)) == MAP_FAILED) {
             stp_errno = STP_MALLOC_ERROR;
@@ -341,18 +361,21 @@ static int do_fs_super_sync_pages(struct stp_fs_info *sb,struct stp_fs_entry *en
 {
     if(!(entry->flags & STP_FS_ENTRY_DIRTY))
         return 0;
-    if(!(entry->offset % getpagesize())) 
+    /*
+    if(PAGE_ALIGN(entry->offset)) 
     {
         if(msync(entry->entry,entry->size,MS_ASYNC) < 0) {
             stp_errno = STP_META_WRITE_ERROR;
             return -1;
         }
         
-    } else {
-    if(pwrite(sb->fd,entry->entry,entry->size,entry->offset) != entry->size) {
+    } else
+    */
+    {
+        if(pwrite(sb->fd,entry->entry,entry->size,entry->offset) != entry->size) {
         stp_errno = STP_META_WRITE_ERROR;
         return -1;
-    }
+        }
     }
     
     entry->flags &= ~STP_FS_ENTRY_DIRTY;
@@ -415,6 +438,8 @@ static int do_fs_super_write(struct stp_fs_info *super,struct stp_inode *inode)
     assert(inode->item->location.count > 0);
     assert(inode->item->location.offset > 0);
     
+    inode->item->atime = time(NULL);
+    
     res = pwrite(super->fd,inode->item,inode->item->location.count,inode->item->location.offset);
     if(res < 0) 
         stp_errno = STP_META_WRITE_ERROR;
@@ -471,18 +496,26 @@ static void __set_fs_header(struct stp_header *dest,const struct stp_header *src
     dest->nritems = src->nritems;
 }
 
-static int do_fs_super_lookup(struct stp_fs_info *sb,struct stp_inode **_inode,u64 ino)
+static int do_fs_super_lookup(struct stp_fs_info *sb,struct stp_inode **_inode,u64 ino,off_t offset)
 {
     struct rb_node *node;
     struct stp_inode *inode;
     
+
     node = rb_tree_find(&sb->root,ino);
-    if(!node) {
-        stp_errno = STP_FS_ENTRY_NOEXIST;
+    if(node) {
+        inode = rb_entry(node,struct stp_inode,node);
+        *_inode = inode;
+        return 0;
+    }
+
+    if(!offset) {
+        stp_errno = STP_INVALID_ARGUMENT;
         return -1;
     }
     
-    inode = rb_entry(node,struct stp_inode,node);
+    if(!(inode = sb->ops->allocate(sb,offset)))
+        return -1;
     
     *_inode = inode;
     
@@ -493,7 +526,7 @@ static int do_fs_super_find(struct stp_fs_info *sb,struct stp_inode **inode,u64 
 {
     struct stp_inode *_inode;
     
-    if(!sb->ops->lookup(sb,inode,ino)) return 0;
+    if(!sb->ops->lookup(sb,inode,ino,offset)) return 0;
     
     if(!(_inode = sb->ops->allocate(sb,offset))) return -1;
 
@@ -549,7 +582,11 @@ static int do_fs_super_free_pages(struct stp_fs_info *sb,struct stp_fs_entry *en
 
     return entry->ops->release(sb,entry);
     */
+    if(!entry->entry)
+        return 0;
+    
     return do_fs_super_rm_pages(sb,entry);
+
 }
 
 static int do_fs_super_free_inode(struct stp_fs_info *sb,struct stp_inode *inode)

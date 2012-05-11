@@ -36,7 +36,7 @@ static int do_fs_inode_init(struct stp_inode *inode)
     inode->item->uid = getuid();
     inode->item->gid = getgid();
     inode->item->mode = S_IRWXU|S_IRGRP|S_IROTH;
-    time((time_t *)&inode->item->atime);
+    inode->item->atime = time(NULL);
     inode->item->ctime = inode->item->atime;
     inode->item->mtime = inode->item->atime;
     inode->item->nritem = 0;
@@ -266,11 +266,9 @@ static int __do_fs_entry_insert(struct stp_inode *parent,const struct stp_dir_it
     
     __copy_dir_item(&ent->item[ent->location.nritems++],item);
     parent->item->nritem ++;
-    location->nritems++;
-    
-    pthread_mutex_lock(&sb->mutex);
-    sb->super->nritems ++;
-    pthread_mutex_unlock(&sb->mutex);
+    if((&ent->location) != location)
+        location->nritems ++;
+    __set_inode_dirty(sb,parent);
     
     //must be sorted(sorted by ino)
     qsort(ent->item,ent->location.nritems,sizeof(*item),dir_item_cmp);
@@ -313,28 +311,58 @@ static int __do_fs_indir_insert(struct stp_inode *parent,const struct stp_dir_it
 
     int i = 0;
     
-    while(i < ent->location.nritems && ent->index[i].nritems == STP_FS_DIR_NUM) {
-        i++;
-    }
-    
-    if(ent->location.nritems !=0 && i == ent->location.nritems) {
+    if(ent->location.nritems == STP_FS_DIRENT_MAX && \
+        ent->index[STP_FS_DIRENT_MAX - 1].nritems == STP_FS_DIR_NUM) {
         stp_errno = STP_FS_ENTRY_FULL;
         return -1;
     }
     
-    location = &ent->index[i];
-    //allocate direct entry,then insert into it
-    if(__ent_empty(location)) {
-        struct stp_fs_entry *item;
-        if(!(item = __get_fs_entry(sb,parent)))
-            return -1;
-        __set_fs_header(location,(struct stp_header *)item->entry);
-        __set_entry_dirty(sb,entry);
-        //header->nritems ++;
+    while(i < ent->location.nritems && ent->index[i].nritems == STP_FS_DIR_NUM) {
+        i++;
     }
     
-    int flags =  __do_fs_entry_insert(parent,item,location);
+    /*
+    if(ent->location.nritems !=0 && i == ent->location.nritems) {
+        stp_errno = STP_FS_ENTRY_FULL;
+        return -1;
+    }
+    */
     
+    location = &ent->index[i];
+    struct stp_fs_entry *it;
+    //allocate direct entry,then insert into it
+    if(__ent_empty(location)) {
+        if(!(it = __get_fs_entry(sb,parent)))
+            return -1;
+        __set_fs_header(location,(struct stp_header *)it->entry);
+        __set_entry_dirty(sb,it);
+        header->nritems ++;
+        ent->location.nritems ++;
+    } else {
+        //find the entry
+        struct rb_node *node;
+        if(!(node = rb_tree_find(&parent->root,location->offset))) {
+            fprintf(stderr,"[ERROR]:%s,%d,fail to lookup entry(%p)\n",__FUNCTION__,__LINE__,node);
+            stp_errno = STP_FS_UNKNOWN_ERROR;
+            return -1;
+        }
+        
+        it = rb_entry(node,struct stp_fs_entry,node);
+        if(!it->entry) {
+            fprintf(stderr,"[ERROR]:%s,%d fail to get entry\n",__FUNCTION__,__LINE__);
+            stp_errno = STP_FS_UNKNOWN_ERROR;
+            return -1;
+        }
+    }
+    
+    
+    int flags =  __do_fs_entry_insert(parent,item,(struct stp_header *)it->entry);
+    if(!flags) {
+        location->nritems ++;
+        __set_entry_dirty(sb,it);
+    }
+    
+    __set_entry_dirty(sb,entry);
     __debug_indir(parent,ent);
     
     return flags;
@@ -355,7 +383,23 @@ static int __do_fs_inode_insert(struct stp_inode *parent,const struct stp_dir_it
         __set_fs_header(location,(struct stp_header *)entry->entry);
         __set_inode_dirty(sb,parent);
         entry->flags |= STP_FS_ENTRY_DIRECT;
+    } else {
+        //find the entry
+        struct rb_node *node;
+        if(!(node = rb_tree_find(&parent->root,location->offset))) {
+            fprintf(stderr,"[ERROR]:%s,%d,fail to lookup entry(%p)\n",__FUNCTION__,__LINE__,node);
+            stp_errno = STP_FS_UNKNOWN_ERROR;
+            return -1;
+        }
+        
+        entry = rb_entry(node,struct stp_fs_entry,node);
+        if(!entry->entry) {
+            fprintf(stderr,"[ERROR]:%s,%d fail to get entry\n",__FUNCTION__,__LINE__);
+            stp_errno = STP_FS_UNKNOWN_ERROR;
+            return -1;
+        }
     }
+    
     printf("%s:%d,nritems:%d\n",__FUNCTION__,__LINE__,location->nritems);
     
     if(location->nritems < STP_FS_DIR_NUM) {
@@ -374,11 +418,12 @@ static int __do_fs_inode_insert(struct stp_inode *parent,const struct stp_dir_it
         __set_inode_dirty(sb,parent);
         entry->flags |= STP_FS_ENTRY_INDIR1;
     }
-    if(location->nritems < STP_FS_DIRENT_MAX) {
+    if(location->nritems <= STP_FS_DIRENT_MAX) {
         __set_entry_dirty(sb,entry);
-        return __do_fs_indir_insert(parent,item,location,entry);
+        return __do_fs_indir_insert(parent,item,location);
     }
     
+    //insert in the in-indirect entry
     location = &parent->item->entry[2];
     if(__ent_empty(location)) {
         //allocate entry
@@ -398,29 +443,32 @@ static int __do_fs_inode_insert(struct stp_inode *parent,const struct stp_dir_it
     
     ent = (struct stp_fs_indir *)entry->entry;
     
+    /*
     while(i < location->nritems && \
           ent->index[i].nritems == STP_FS_DIRENT_MAX)
         //search the unused item
         i++;
-    
-    if(location->nritems !=0 && i == ent->location.nritems) {
-        stp_errno = STP_FS_ENTRY_FULL;
-        return -1;
-    }
-    
-    struct stp_header *l;
-    
-    l = &ent->index[i];
-    if(__ent_empty(l)) {
+    */
+    int flags;
+    while(i < location->nritems) {
+        struct stp_header *l;
+        
+        l = &ent->index[i];
+        if(__ent_empty(l)) {
         struct stp_fs_entry *item;
         if(!(item = __get_fs_entry(sb,parent)))
             return -1;
         __set_fs_header(&ent->index[i],(struct stp_header *)item->entry);
         __set_entry_dirty(sb,entry);
+        location->nritems ++;
         }
     
-    __set_entry_dirty(sb,entry);
-    return __do_fs_indir_insert(parent,item,l);
+        __set_entry_dirty(sb,entry);
+        flags  = __do_fs_indir_insert(parent,item,l);
+        if(!flags || (flags < 0 && stp_errno != STP_FS_ENTRY_FULL))
+            return flags;
+    }
+    
 }
 
 static int do_fs_inode_mkdir(struct stp_inode *parent,const char *filename,size_t len,struct stp_inode *inode)
@@ -576,7 +624,7 @@ static inline void __debug_indir(const struct stp_inode *parent,const struct stp
     struct stp_fs_entry *entry;
     struct rb_node *node;
     
-    printf("debug indirectory offset:%llu,count:%llu\n",ent->location.offset,ent->location.count);
+    printf("debug indirectory offset:%llu,count:%llu,%p\n",ent->location.offset,ent->location.count,ent);
     
     if(!ent) {
         printf("[ERROR]:%s,%d ent is null!\n",__FUNCTION__,__LINE__);
@@ -604,8 +652,8 @@ static inline void __debug_indir(const struct stp_inode *parent,const struct stp
 static inline void __debug_entry(const struct stp_fs_dirent * ent)
 {
     int i;
-    printf("%s:%d,ent(%p),nritems:%d\n",__FUNCTION__,\
-           __LINE__,ent,ent->location.nritems);
+    printf("%s:%d,ent(%p),nritems:%d,offset:%llu\n",__FUNCTION__,\
+           __LINE__,ent,ent->location.nritems,ent->location.offset);
     
     for(i = 0;i<ent->location.nritems;i++)
     {

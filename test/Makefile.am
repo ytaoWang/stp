@@ -1,4 +1,4 @@
-bin_PROGRAMS = stp
-stp_SOURCES = test_bitmap.c
-stp_LDADD = $(top_srcdir)/lib/libstp.a
+bin_PROGRAMS = ../bin/stp
+___bin_stp_SOURCES = test_bitmap.c
+___bin_stp_LDADD = $(top_srcdir)/lib/libstp.a
 AM_CFLAGS = -lpthread -I$(top_srcdir)/include -D_GNU_SOURCE
