@@ -40,15 +40,15 @@ const char * const stp_errlist[STP_MAX_ERRNO + 1] = {
     N_("Fail to allocate bnode"),/*STP_BNODE_MALLOC_ERROR 32*/
     N_("Invalid argument."),/*STP_INVALID_ARGUMENT 33*/
     N_("Function not implemented"),/*STP_NO_SYSCALL 34*/
-    N_("Index key has existed"),/*STP_INDEX_EXIST */
-    N_("Index has reached maximum level"),/*STP_INDEX_MAX_LEVEL*/
-    N_("Index key hasn't existed"),/*STP_INDEX_NOT_EXIST*/
-    N_("File has existed"),/*STP_FS_ENTRY_EXIST*/
-    N_("File hasn't existed"),/*STP_FS_ENTRY_NOEXIST*/
-    N_("Directory entry is full"),/*STP_FS_ENTRY_FULL*/
-    N_("Unknown error"),/*STP_UNKNOWN_ERROR*/
-    N_("File ino han't existed"),/*STP_FS_INO_NOEXIST */
-    N_("File Directory isn't empty"),/*STP_FS_DIR_NOEMPTY*/
+    N_("Index key has existed"),/*STP_INDEX_EXIST 35*/
+    N_("Index has reached maximum level"),/*STP_INDEX_MAX_LEVEL 36*/
+    N_("Index key hasn't existed"),/*STP_INDEX_NOT_EXIST 37*/
+    N_("File has existed"),/*STP_FS_ENTRY_EXIST 38*/
+    N_("File hasn't existed"),/*STP_FS_ENTRY_NOEXIST 39*/
+    N_("Directory entry is full"),/*STP_FS_ENTRY_FULL 40*/
+    N_("Unknown error"),/*STP_UNKNOWN_ERROR 41*/
+    N_("File ino han't existed"),/*STP_FS_INO_NOEXIST 42*/
+    N_("File Directory isn't empty"),/*STP_FS_DIR_NOEMPTY 43*/
     };
 
     

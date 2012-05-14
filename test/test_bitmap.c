@@ -77,6 +77,8 @@ int main(int argc,char *argv[])
         //if(stp_unlink(file,"test1") < 0) {
             printf("creat file %s error:%s,errno:%d\n",name,stp_strerror(stp_errno),stp_errno);
         }
+        else printf("create file %s successful\n",name);
+        
         ino ++;
     }
     
@@ -95,6 +97,11 @@ int main(int argc,char *argv[])
     if(stp_stat(file,ino,&stbuf) < 0) {
         fprintf(stderr,"stat file ino:%llu,error:%s\n",ino,stp_strerror(stp_errno));
     } else print_stat(&stbuf);
+    
+    if(stp_unlink(file,"2") < 0) {
+        fprintf(stderr,"unlink file 2 error:%s\n",stp_strerror(stp_errno));
+    } else 
+        printf("successful to unlink 2\n");
     
     /*
      * test destroy

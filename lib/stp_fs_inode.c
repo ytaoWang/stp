@@ -25,6 +25,8 @@ static int __rm_inode_entry(struct stp_inode *,struct stp_header *,struct stp_fs
 static int __rm_inode_indir(struct stp_inode *,struct stp_header *,struct stp_fs_entry *);
 static struct stp_fs_entry* __do_read_entry(struct stp_inode *,struct stp_header *,u32,struct stp_fs_entry *);
 static inline int __equal_location(const struct stp_header *l1,const struct stp_header *l2);
+static int __copy_inode_entry(const struct stp_header *location,struct stp_dir_item *item);
+static int __copy_inode_indir(const struct stp_header *location,struct stp_dir_item *item);
 
 static int do_fs_inode_setattr(struct stp_inode *inode)
 {
@@ -482,7 +484,7 @@ static int do_fs_inode_rm(struct stp_inode *parent,const char *filename,size_t l
     
     if(_do_fs_inode_exist(parent,0,filename,len,&found,&entry) < 0)
         return -1;
-    if(found < 0) 
+    if(!found) 
         return -1;
     if(!(entry->flags & STP_FS_ENTRY_DIRECT)) {
         stp_errno = STP_INVALID_ARGUMENT;
@@ -491,11 +493,17 @@ static int do_fs_inode_rm(struct stp_inode *parent,const char *filename,size_t l
     
     struct stp_fs_dirent *ent = (struct stp_fs_dirent *)entry->entry;
     
+    //delete the corresponding entry
     for(i = 0; i < ent->location.nritems;++i) {
         if(!strcmp(ent->item[i].name,filename)) 
             break;
     }
     
+    assert(i != ent->location.nritems);
+    
+    *ino = ent->item[i].ino;
+    
+    //move the entry forward
     while(i < ent->location.nritems - 1) {
         __copy_dir_item(&ent->item[i],&ent->item[i+1]);
         i++;
@@ -511,7 +519,10 @@ static int do_fs_inode_rm(struct stp_inode *parent,const char *filename,size_t l
      * from parent
      */
     pentry = entry->parent;
-    if(!pentry && !__equal_location(&parent->item->entry[0],(struct stp_header *)pentry->entry)) {
+    
+    if(!pentry) return 0;
+    
+    if(!__equal_location(&parent->item->entry[0],(struct stp_header *)pentry->entry)) {
         stp_errno = STP_FS_UNKNOWN_ERROR;
         return -1;
     }
@@ -558,6 +569,7 @@ static int do_fs_inode_create(struct stp_inode *parent,const char *filename,size
 
 static int do_fs_inode_readdir(struct stp_inode *inode)
 {
+    
     return -1;
 }
 
@@ -602,13 +614,51 @@ static int do_fs_inode_free(struct stp_inode *inode)
      */
     struct stp_header *location;
     
+    //free direct entry
     location = &inode->item->entry[0];
     if(!__ent_empty(location)) {
-        if((entry = __do_read_entry(inode,location,STP_FS_ENTRY_DIRECT,NULL))) {
-            
-            
-        }
+        if(__rm_inode_entry(inode,location,NULL) < 0)
+            return -1;
     }
+    
+    //free indirect entry
+    location = &inode->item->entry[1];
+    if(!__ent_empty(location)) {
+        if(__rm_inode_indir(inode,location,NULL) < 0)
+            return -1;
+    }
+    //free the last entry
+    if(__rm_inode_entry(inode,location,NULL) < 0)
+        return -1;
+    
+    //free in-indirect entry
+    location = &inode->item->entry[2];
+    if(!__ent_empty(location)) {
+        if(!(entry = __do_read_entry(inode,location,STP_FS_ENTRY_INDIR2,NULL)))
+            return -1;
+    }
+    
+    int i = 0;
+    struct stp_fs_indir *ent;
+    
+    ent = (struct stp_fs_indir *)entry->entry;
+    while(i < location->nritems) {
+        struct stp_header *l;
+        
+        l = &ent->index[i];
+        if(!__ent_empty(l)) {
+            if(__rm_inode_indir(inode,l,entry) < 0)
+                return -1;
+        }
+        //free the last entry
+        if(__rm_inode_entry(inode,l,entry) < 0)
+            return -1;
+        i++;
+    }
+    
+    //free the last entry
+    if(__rm_inode_entry(inode,location,NULL) < 0)
+        return -1;
     
     return inode->ops->destroy(inode);
 }
@@ -627,6 +677,50 @@ static int do_fs_inode_unlink(struct stp_inode *inode)
     
     return sb->ops->free_inode(sb,inode);
 }
+
+static int do_fs_inode_readdir(const struct stp_fs_inode *inode,struct stp_dir_item *item)
+{
+    struct stp_fs_info *sb = parent->fs;
+    struct stp_fs_entry *entry;
+    struct stp_fs_dirent *ent;
+    struct stp_header *location;    
+    int i;
+    size_t len,num;
+    
+    i = 0;
+
+    //copy direct dir entry
+    location = &inode->item->entry[0];
+    if(__copy_inode_entry(location,item,NULL,&len) < 0)
+        return -1;
+    
+    num = len;
+    //copy indirect dir entry
+    location = &inode->item->entry[1];
+    if(__copy_inode_indir(location,item+num,NULL,&len) < 0)
+        return -1;
+    
+    //copy in-indirect dir entry
+    location = &inode->item->entry[2];
+    if(!location || __ent_empty(location))
+        return 0;
+    
+    struct stp_fs_indir *in;
+    
+    if(!(entry = __do_read_entry(inode,location,SPT_FS_ENTRY_INDIR2,NULL)) < 0) 
+        return -1;
+    
+    in = (struct stp_fs_indir *)entry->entry;
+    
+    for(i = 0;i < in->location->nritems;i++) {
+        if(__copy_inode_indir(&in->index[i],item+num,entry,&len) < 0)
+            return -1;
+    }
+
+    
+    return -1;
+}
+
 
 static struct stp_fs_entry* __get_fs_entry(struct stp_fs_info *sb,struct stp_inode *inode,struct stp_fs_entry *pentry)
 {
@@ -781,6 +875,60 @@ static inline int __equal_location(const struct stp_header *l1,const struct stp_
     return (l1->offset == l2->offset) && (l1->count == l2->count);
 }
 
+static int __copy_inode_entry(const struct stp_header *location,struct stp_dir_item *item,struct stp_fs_entry *pentry,size_t *num)
+{
+    struct stp_fs_entry *entry;
+    struct stp_fs_dirent *ent;
+    int i;
+
+    *len = 0;
+    if(!location || __ent_empty(location))
+        return 0;
+    
+    if(!(entry = __do_read_entry(inode,location,STP_FS_ENTRY_DIRECT,pentry)))
+        return -1;
+        
+    ent = (struct stp_fs_dirent *)entry->entry;
+    i = 0;
+    while(i < ent->location.nritems) {
+        memcpy(&item[i],&ent->item[i],sizeof(struct stp_dir_item));
+        i++;
+    }
+    
+    *num = i;
+    
+    return 0;
+}
+
+static int __copy_inode_indir(const struct stp_header *location,struct stp_dir_item *item,struct stp_fs_entry *pentry,size_t *len)
+{
+    struct stp_fs_entry *entry;
+    struct stp_fs_dirent *ent;
+    struct stp_fs_indir *in;
+    int i;
+    size_t num = 0,count = 0;
+    
+    *len = 0;
+    
+    if(!location || __ent_empty(location))
+        return 0;
+    
+    if(!(entry = __do_read_entry(inode,location,SPT_FS_ENTRY_INDIR1,pentry)))
+        return -1;
+    
+    in = (struct stp_fs_indir *)entry->entry;
+    for(i = 0;i < in->location.nritems;i++) {
+        count = 0;
+        if(__copy_inode_entry(&in->index[i],item + num,entry,&count) < 0)
+            return -1;
+        num += count;
+    }
+
+    return 0;
+}
+
+
+
 
 const struct stp_inode_operations inode_operations = {
     .init = do_fs_inode_init,
@@ -793,4 +941,5 @@ const struct stp_inode_operations inode_operations = {
     .free = do_fs_inode_free,
     .lookup = do_fs_inode_lookup,
     .unlink = do_fs_inode_unlink,
+    .readdir = do_fs_inode_readdir,
 };

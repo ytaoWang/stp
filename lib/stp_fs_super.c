@@ -578,11 +578,10 @@ static struct stp_fs_entry * do_fs_super_alloc_entry(struct stp_fs_info *sb,stru
     }
     
     list_move(&inode->entry_list,&entry->list);
-    
-    if(parent) {
-        entry->parent = parent;
+    entry->parent = parent;
+
+    if(parent)
         list_add_tail(&parent->child,&entry->sibling);
-    }
     
     return entry;
 }
@@ -633,13 +632,13 @@ static int do_fs_super_free_inode(struct stp_fs_info *sb,struct stp_inode *inode
     */
     sb->super->bytes_hole += sizeof(struct stp_inode_item);
     sb->super->bytes_used -= sizeof(struct stp_inode_item);
-    location->flags |= STP_HEADER_DELETE;
         //}
     sb->super->nrdelete ++;
     
     pthread_mutex_unlock(&sb->mutex);
     
     location = &inode->item->location;
+    location->flags |= STP_HEADER_DELETE;
     inode->flags |= STP_FS_INODE_DIRTY;
     if(inode->ops->free(inode) < 0)
         return -1;

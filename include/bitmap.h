@@ -4,7 +4,7 @@
 #include "stp_types.h"
 #include "bitops.h"
 #include <string.h>
-
+#include <stdio.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -28,7 +28,7 @@ static inline int bitmap_clean(u32 *bitmap,unsigned long bits)
     
 
     #ifdef DEBUG
-    printf("bitmap[0]:%lx\n",bitmap[0]);
+    printf("bitmap[0]:%x\n",bitmap[0]);
     #endif
 }
     
@@ -78,7 +78,7 @@ static inline void bitmap_set(u32 *bitmap,unsigned long off)
     
     set_bit((BITS_PER_U32 - off -1 ),&bitmap[k]);
     #ifdef DEBUG
-    printf("bitmap[%d]:%lx,off:%ld\n",k,bitmap[k],off);
+    printf("bitmap[%d]:%u,off:%ld\n",k,bitmap[k],off);
     #endif
 }
 

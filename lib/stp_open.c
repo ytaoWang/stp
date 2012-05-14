@@ -10,7 +10,7 @@
 #include "stp_fs.h"
 #include "stp_error.h"
 #include "stp.h"
-
+#include "rb_tree.h"
 
 static int read_fs_info(int ffd,struct stp_fs_info **,unsigned int mode);
 static int read_btree_info(int bfd,struct stp_btree_info **,unsigned int mode);
@@ -303,10 +303,20 @@ int stp_unlink(STP_FILE file,const char *filename)
   /*
    * unlink entry
    */
-  if(tree->ops->search(tree,ino,&off) < 0)
-      return -1;
+  //find the parent inode position
+  if(ino != 1) {
+      if(tree->ops->search(tree,ino,&off) < 0)
+          return -1;
+  } else {
+      off.ino = 1;
+      off.offset = sizeof(struct stp_fs_super) - sizeof(struct stp_inode_item);
+  }
+  
+  //find the corresponding parent inode
   if(fs->ops->lookup(fs,&inode,off.ino,off.offset) < 0)
       return -1;
+  
+  //unlink the filename entry of parent and corresponding inode
   if(__fs_info_unlink(fs,inode,filename,&off) < 0) {   
       /*
        * unlink the name corresponding inode
@@ -321,6 +331,7 @@ int stp_unlink(STP_FILE file,const char *filename)
           return -1;
   }
   
+  //unlink the corresponding position
   if(__btree_info_unlink(tree,&off) < 0)
       return -1;
   
@@ -379,7 +390,7 @@ static int __fs_info_unlink(struct stp_fs_info *sb,struct stp_inode *inode,const
     if(inode->ops->rm(inode,name,len,&ino) < 0)
         return -1;
     off->ino = ino;
-    //search corresponding _inode
+    //search corresponding_inode of name
     if(sb->ops->find(sb,&_inode,ino) < 0) 
         return -1;
     
@@ -392,7 +403,10 @@ static int __fs_info_unlink(struct stp_fs_info *sb,struct stp_inode *inode,const
 }
 
 static int __btree_info_unlink(struct stp_btree_info *sb,const struct stp_bnode_off *off)
-{
-    return -1;
+{    
+    #ifdef DEBUG
+    printf("btree unlink ino:%llu\n",off->ino);
+    #endif
+    return sb->ops->rm(sb,off->ino);
 }
 

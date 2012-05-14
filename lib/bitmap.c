@@ -24,7 +24,7 @@ u32  __bitmap_alloc(u32 *bitmap,off_t start,size_t len)
     lim = (len >= BITS_PER_U32 ? BITS_PER_U32:len);
     
 #ifdef DEBUG
-    printf("begin index:%d,offset:%d,start:%ld,len:%ld\n",k,s1,start,len);
+    printf("begin index:%d,offset:%d,start:%ld,len:%u\n",k,s1,start,len);
 #endif
 
     b = bitmap[k] | (~0UL <<(BITS_PER_U32 - s1));
@@ -39,7 +39,7 @@ u32  __bitmap_alloc(u32 *bitmap,off_t start,size_t len)
     lim = (start + len) / BITS_PER_U32;
     
     #ifdef DEBUG
-    printf("k:%ld,lim:%ld\n",k,lim);
+    printf("k:%d,lim:%d\n",k,lim);
     #endif
     
     for(k=k+1;k < lim;k ++) 
@@ -57,7 +57,7 @@ u32  __bitmap_alloc(u32 *bitmap,off_t start,size_t len)
     s2 = __get_remain(start,len) + 1;
     
 	#ifdef DEBUG
-    printf("find s2:%ld\n",s2);
+    printf("find s2:%d\n",s2);
     #endif
     assert(s2 != 0);
     if(!s2) return 0;
