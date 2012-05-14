@@ -102,7 +102,7 @@ struct stp_inode_operations {
     int (*lookup)(struct stp_inode *,const char *,size_t,u64);
     int (*rm)(struct stp_inode *,const char *name,size_t len,u64 *ino);
     int (*creat)(struct stp_inode *,const char *,size_t,struct stp_inode *,mode_t);
-    int (*readdir)(struct stp_inode *);
+    int (*readdir)(struct stp_inode *,struct stp_dir_item *);
     int (*destroy)(struct stp_inode *);
     int (*sync)(struct stp_inode *);
     int (*free)(struct stp_inode *);

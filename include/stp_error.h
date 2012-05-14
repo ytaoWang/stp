@@ -45,9 +45,11 @@
 #define STP_FS_UNKNOWN_ERROR       41
 #define STP_FS_INO_NOEXIST         42
 #define STP_FS_DIR_NOEMPTY	       43
+#define STP_FS_NO_DIR			   44
+#define STP_FS_ROOT                45
 
 #define STP_MIN_ERRNO             0
-#define STP_MAX_ERRNO             43
+#define STP_MAX_ERRNO             45
 
 #define N_(s)  (s)
 #define _(s)  ((const char *)s)

@@ -348,6 +348,52 @@ int stp_unlink(STP_FILE file,const char *filename)
   return 0;
 }
 
+int stp_rmdir(STP_FILE file,u64 ino)
+{
+    struct stp_fs_info *fs;
+    struct stp_btree_info *tree;
+    struct stp_bnode_off off;
+    struct stp_inode *inode;
+    
+    if(!file) {
+        stp_errno = STP_INVALID_ARGUMENT;
+        return -1;
+    }
+    
+    fs = file->fs;
+    tree = file->tree;
+    
+    if(!(fs->mode & STP_FS_RDWR)) {
+        stp_errno = STP_META_CANT_BE_WRITER;
+        return -1;
+    }
+    
+    memset(&off,0,sizeof(off));
+    if(ino != 1) {
+        if(tree->ops->search(tree,ino,&off) < 0)
+            return -1;
+    } else {
+        stp_errno = STP_FS_ROOT;
+        return -1;
+    }
+    
+    if(fs->ops->lookup(fs,&inode,off.ino,off.offset) < 0)
+        return -1;
+    
+    if(!(inode->item->mode & S_IFDIR)) {
+        stp_errno = STP_FS_NO_DIR;
+        return -1;
+    }
+    
+    if(inode->item->nritem != 0) {
+        stp_errno = STP_FS_DIR_NOEMPTY;
+        return -1;
+    }
+    
+    return inode->ops->unlink(inode);
+}
+
+
 static int __fs_info_insert(struct stp_fs_info *sb,u64 pino,struct stp_dir_item *key,struct stp_bnode_off *off,mode_t mode)
 {
     struct stp_inode *inode,*parent;

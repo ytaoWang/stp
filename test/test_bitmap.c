@@ -102,6 +102,12 @@ int main(int argc,char *argv[])
         fprintf(stderr,"unlink file 2 error:%s\n",stp_strerror(stp_errno));
     } else 
         printf("successful to unlink 2\n");
+
+    if(stp_readdir(file,1) < 0) {
+        fprintf(stderr,"readdir error:%s\n",stp_strerror(stp_errno));
+    } else 
+        printf("readdir successful\n");
+    
     
     /*
      * test destroy

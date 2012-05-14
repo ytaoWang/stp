@@ -16,6 +16,7 @@ int stp_creat(STP_FILE file,const char *,mode_t mode);
 int stp_stat(STP_FILE file,u64 ino,struct stat *);    
 int stp_close(STP_FILE file);
 int stp_unlink(STP_FILE file,const char *);
+int stp_readdir(STP_FILE file,u64);
     
 
 #ifdef __cplusplus
