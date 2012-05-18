@@ -11,12 +11,14 @@ struct stat;
     
 const char * stp_strerror(stp_error error);
 
-STP_FILE stp_open(const char *ffile,const char *bfile,unsigned int mode);
-int stp_creat(STP_FILE file,const char *,mode_t mode);
-int stp_stat(STP_FILE file,u64 ino,struct stat *);    
-int stp_close(STP_FILE file);
-int stp_unlink(STP_FILE file,const char *);
-int stp_readdir(STP_FILE file,u64);
+STP_FILE stp_open(const char *,const char *,unsigned int);
+int stp_creat(STP_FILE,const char *,mode_t);
+int stp_stat(STP_FILE,u64,struct stat *);    
+int stp_close(STP_FILE);
+int stp_unlink(STP_FILE,const char *);
+int stp_readdir(STP_FILE,u64);
+int stp_mkdir(STP_FILE,const char *,mode_t);
+int stp_rmdir(STP_FILE,u64);
     
 
 #ifdef __cplusplus

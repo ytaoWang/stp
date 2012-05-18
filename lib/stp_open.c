@@ -263,10 +263,7 @@ int stp_creat(STP_FILE file,const char *filename,mode_t mode)
   item.name_len = strlen(filename);
   strncpy(item.name,filename,item.name_len);
   
-  off.ino = random();
-  off.offset = off.ino;
-  off.len = off.offset;
-  off.flags = 0;
+  memset(&off,0,sizeof(off));
   
   flags = __fs_info_insert(fs,1,&item,&off,mode);
   if(flags < 0) return -1;
@@ -347,6 +344,38 @@ int stp_unlink(STP_FILE file,const char *filename)
 
   return 0;
 }
+
+int stp_mkdir(STP_FILE file,const char *name)
+{
+    struct stp_fs_info *fs;
+    struct stp_btree_info *btree;
+    struct stp_bnode_off off;
+    struct stp_dir_item item;
+    int flags;
+
+    if(!file || !name || strlen(name) > DIR_LEN) {
+        stp_errno = STP_INVALID_ARGUMENT;
+        return -1;
+    }
+    
+    fs = file->fs;
+    btree = file->tree;
+    
+    if(!(tree->mode & STP_FS_RDWR)) {
+        stp_errno = STP_INDEX_CANT_BE_WRITER;
+        return -1;
+    }
+    
+    memset(&item,0,sizeof(item));
+    
+    item.name_len = strlen(name);
+    strncpy(item.name,name,item.name_len);
+    
+    
+    
+    return 0;
+}
+
 
 int stp_rmdir(STP_FILE file,u64 ino)
 {
