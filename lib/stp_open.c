@@ -17,8 +17,9 @@ static int read_btree_info(int bfd,struct stp_btree_info **,unsigned int mode);
 static int __fs_info_insert(struct stp_fs_info *,u64 pino,struct stp_dir_item *,struct stp_bnode_off *,mode_t);
 static int __btree_info_insert(struct stp_btree_info *,const struct stp_bnode_off *);
 static int __btree_info_unlink(struct stp_btree_info *,const struct stp_bnode_off *);
-static int __fs_info_unlink(struct stp_fs_info *,struct stp_inode *inode,const char *name,struct stp_bnode_off *off);
-
+static int __fs_info_unlink(struct stp_fs_info *,struct stp_inode *inode,const char *name,struct stp_bnode_off *off,int *flag);
+static int __fs_info_mkdir(struct stp_fs_info *,u64 pino,struct stp_dir_item *,struct stp_bnode_off *,mode_t );
+static int __fs_read_inode(struct stp_fs_info *,u64 pino,struct stp_btree_info *,struct stp_inode **);
 
 static int stp_check(const struct stp_fs_info *fs,const struct stp_btree_info *btree)
 {
@@ -243,7 +244,8 @@ int stp_creat(STP_FILE file,const char *filename,mode_t mode)
   struct stp_bnode_off off;
   struct stp_dir_item item;
   int flags;
-  
+  u64 pino = 1;
+
   if(!file || !filename || strlen(filename) > DIR_LEN) {
       stp_errno = STP_INVALID_ARGUMENT;
       return -1;
@@ -258,6 +260,11 @@ int stp_creat(STP_FILE file,const char *filename,mode_t mode)
       return -1;
   }
 
+  //read parent inode
+  if(__fs_read_inode(fs,pino,tree,NULL) < 0) 
+      return -1;
+
+
   memset(&item,0,sizeof(item));
   
   item.name_len = strlen(filename);
@@ -265,23 +272,22 @@ int stp_creat(STP_FILE file,const char *filename,mode_t mode)
   
   memset(&off,0,sizeof(off));
   
-  flags = __fs_info_insert(fs,1,&item,&off,mode);
+  flags = __fs_info_insert(fs,pino,&item,&off,mode);
   if(flags < 0) return -1;
   flags =  __btree_info_insert(tree,&off);
 
   return flags;
 }
 
-int stp_unlink(STP_FILE file,const char *filename)
+int stp_unlink(STP_FILE file,u64 pino,const char *filename)
 {
     struct stp_fs_info *fs;
     struct stp_btree_info *tree;
     struct stp_bnode_off off;
-    struct stp_inode *inode;
-    
-    u64 ino = 1;//parent ino
+    struct stp_inode *inode;    
+
     static u64 num = 1;
-    u8 flags;
+    int flags;
     
     if(!file) {
       stp_errno = STP_INVALID_ARGUMENT;
@@ -295,26 +301,18 @@ int stp_unlink(STP_FILE file,const char *filename)
       stp_errno =  STP_INDEX_CANT_BE_WRITER;
       return -1;
   }
-  
-  memset(&off,0,sizeof(off));
+
   /*
    * unlink entry
    */
-  //find the parent inode position
-  if(ino != 1) {
-      if(tree->ops->search(tree,ino,&off) < 0)
-          return -1;
-  } else {
-      off.ino = 1;
-      off.offset = sizeof(struct stp_fs_super) - sizeof(struct stp_inode_item);
-  }
-  
-  //find the corresponding parent inode
-  if(fs->ops->lookup(fs,&inode,off.ino,off.offset) < 0)
+  //read parent inode
+  if(__fs_read_inode(fs,pino,tree,&inode) < 0) 
       return -1;
   
+  memset(&off,0,sizeof(off));
+
   //unlink the filename entry of parent and corresponding inode
-  if(__fs_info_unlink(fs,inode,filename,&off) < 0) {   
+  if(__fs_info_unlink(fs,inode,filename,&off,&flags) < 0) {   
       /*
        * unlink the name corresponding inode
        */
@@ -329,8 +327,10 @@ int stp_unlink(STP_FILE file,const char *filename)
   }
   
   //unlink the corresponding position
-  if(__btree_info_unlink(tree,&off) < 0)
-      return -1;
+  if(flags)
+      return __btree_info_unlink(tree,&off);
+  
+  return 0;
   
   //  tree->ops->debug_btree(tree);
   /*
@@ -341,13 +341,11 @@ int stp_unlink(STP_FILE file,const char *filename)
   ino --;
   */
   //tree->ops->debug_btree(tree);
-
-  return 0;
 }
 
-int stp_mkdir(STP_FILE file,const char *name)
+int stp_mkdir(STP_FILE file,u64 pino,const char *name,mode_t mode)
 {
-    struct stp_fs_info *fs;
+    struct stp_fs_info *tree;
     struct stp_btree_info *btree;
     struct stp_bnode_off off;
     struct stp_dir_item item;
@@ -358,32 +356,44 @@ int stp_mkdir(STP_FILE file,const char *name)
         return -1;
     }
     
-    fs = file->fs;
+    tree = file->fs;
     btree = file->tree;
     
     if(!(tree->mode & STP_FS_RDWR)) {
         stp_errno = STP_INDEX_CANT_BE_WRITER;
         return -1;
     }
-    
+
+    //read parent inode
+    if(__fs_read_inode(tree,pino,btree,NULL) < 0) 
+        return -1;
+
     memset(&item,0,sizeof(item));
     
     item.name_len = strlen(name);
     strncpy(item.name,name,item.name_len);
     
+    memset(&off,0,sizeof(off));
     
+    mode |= S_IFDIR;
+    
+    flags = __fs_info_mkdir(tree,pino,&item,&off,mode);
+    if(flags < 0) return -1;
+    flags = __btree_info_insert(btree,&off);
     
     return 0;
 }
 
 
-int stp_rmdir(STP_FILE file,u64 ino)
+int stp_rmdir(STP_FILE file,u64 pino,const char *filename,size_t len)
 {
     struct stp_fs_info *fs;
     struct stp_btree_info *tree;
     struct stp_bnode_off off;
-    struct stp_inode *inode;
-    
+    struct stp_inode *inode,*pinode;
+    struct stp_dir_item *it;
+    int flag;
+
     if(!file) {
         stp_errno = STP_INVALID_ARGUMENT;
         return -1;
@@ -398,13 +408,26 @@ int stp_rmdir(STP_FILE file,u64 ino)
     }
     
     memset(&off,0,sizeof(off));
-    if(ino != 1) {
-        if(tree->ops->search(tree,ino,&off) < 0)
-            return -1;
-    } else {
+    if(!strcmp(filename, "/")) {
         stp_errno = STP_FS_ROOT;
         return -1;
-    }
+    }    
+
+    //get parent inode
+    if(__fs_read_inode(fs,pino,tree,&pinode) < 0) 
+        return -1;
+
+    //get child inode position
+    if(!(it = pinode->ops->find_entry(pinode,filename,len)))
+        return -1;
+
+    //get child inode
+    struct stp_bnode_off;
+    
+    memset(&off,0,sizeof(off));
+    
+    if(tree->ops->search(tree,it->ino,&off) < 0)
+        return -1;
     
     if(fs->ops->lookup(fs,&inode,off.ino,off.offset) < 0)
         return -1;
@@ -413,14 +436,18 @@ int stp_rmdir(STP_FILE file,u64 ino)
         stp_errno = STP_FS_NO_DIR;
         return -1;
     }
-    
-    if(inode->item->nritem != 0) {
-        stp_errno = STP_FS_DIR_NOEMPTY;
-        return -1;
+
+    if(__fs_info_unlink(fs,inode,filename,&off,&flag) < 0) {
+        if(stp_errno == STP_FS_INO_NOEXIST)
+            return 0;
     }
     
-    return inode->ops->unlink(inode);
+    if(flag)
+        return __btree_info_unlink(tree,&off);
+    
+    return 0;
 }
+
 
 
 static int __fs_info_insert(struct stp_fs_info *sb,u64 pino,struct stp_dir_item *key,struct stp_bnode_off *off,mode_t mode)
@@ -428,7 +455,14 @@ static int __fs_info_insert(struct stp_fs_info *sb,u64 pino,struct stp_dir_item 
     struct stp_inode *inode,*parent;
     int flags;
     
-    if(sb->ops->find(sb,&parent,pino) < 0) return -1;
+    if(sb->ops->find(sb,&parent,pino) < 0) {
+        
+        #ifdef DEBUG
+        fprintf(stderr,"fail to find parent ino.\n");
+        #endif
+        
+        return -1;
+    }
     
     flags = parent->ops->lookup(parent,key->name,key->name_len,0);
     
@@ -449,13 +483,58 @@ static int __fs_info_insert(struct stp_fs_info *sb,u64 pino,struct stp_dir_item 
     return inode->ops->creat(parent,key->name,key->name_len,inode,mode);
 }
 
+static int __fs_info_mkdir(struct stp_fs_info *sb,u64 pino,struct stp_dir_item *key,struct stp_bnode_off *off,mode_t mode)
+{
+    struct stp_inode *inode,*parent;
+    int flags;
+    
+    if(!(mode & S_IFDIR)) {
+        stp_errno = STP_FS_NODIR;
+        return -1;
+    }
+    
+    
+    if(sb->ops->find(sb,&parent,pino) < 0) {
+        #ifdef DEBUG
+        fprintf(stderr,"fail to find parent inode.\n");
+        #endif
+        return -1;
+    }
+
+    if(!(parent->item->mode & S_IFDIR)) {
+        stp_errno = STP_FS_NO_DIR;
+        return -1;
+    }
+    
+    flags = parent->ops->lookup(parent,key->name,key->name_len,0);
+    if(flags < 0 && stp_errno != STP_FS_ENTRY_NOEXIST) return -1;
+    if(!flags) {
+        stp_errno = STP_FS_ENTRY_EXIST;
+        return -1;
+    }
+    
+    if(!(inode = sb->ops->allocate(sb,0))) return -1;
+    
+    key->ino = inode->item->ino;
+    off->ino = inode->item->ino;
+    off->offset = inode->item->location.offset;
+    off->len = inode->item->location.count;
+    inode->item->mode = mode;
+    
+    #ifdef DEBUG
+    printf("ino:%llu,len:%llu,offset:%llu\n",off->ino,off->len,off->offset);
+    #endif
+    
+    return inode->ops->mkdir(parent,key->name,key->name_len,inode);
+}
+
 
 static int __btree_info_insert(struct stp_btree_info *tree,const struct stp_bnode_off *off)
 {
     return tree->ops->insert(tree,off,BTREE_OVERFLAP);
 }
 
-static int __fs_info_unlink(struct stp_fs_info *sb,struct stp_inode *inode,const char *name,struct stp_bnode_off *off)
+static int __fs_info_unlink(struct stp_fs_info *sb,struct stp_inode *inode,const char *name,struct stp_bnode_off *off,int *flags)
 {
     struct stp_inode *_inode;
     u64 ino;
@@ -470,10 +549,15 @@ static int __fs_info_unlink(struct stp_fs_info *sb,struct stp_inode *inode,const
         return -1;
     
     assert(_inode->item);
-    off->offset = _inode->item->location.offset;
-    off->len = _inode->item->location.count;
-    off->flags = _inode->item->location.flags;
-
+    if(off) 
+    {
+        off->offset = _inode->item->location.offset;
+        off->len = _inode->item->location.count;
+        off->flags = _inode->item->location.flags;
+    }
+    
+    *flags = _inode->item->nlink;
+    
     return _inode->ops->unlink(_inode);
 }
 
@@ -485,3 +569,23 @@ static int __btree_info_unlink(struct stp_btree_info *sb,const struct stp_bnode_
     return sb->ops->rm(sb,off->ino);
 }
 
+static int __fs_read_inode(struct stp_fs_info *fs,u64 ino,struct stp_btree_info *btree,struct stp_inode **_inode)
+{
+    struct stp_inode *inode;
+    struct stp_bnode_off off;
+    
+    if(!fs->ops->find(fs,_inode,ino)) 
+        return 0;
+    
+    memset(&off,0,sizeof(off));
+    
+    if(btree->ops->search(btree,ino,&off) < 0)
+        return -1;
+    if(fs->ops->lookup(fs,&inode,off.ino,off.offset) < 0)
+        return -1;
+
+    if(_inode)
+        *_inode = inode;
+    
+    return 0;
+}

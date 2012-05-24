@@ -73,12 +73,18 @@ int main(int argc,char *argv[])
         //printf("create file ino:%llu\n",ino);
         snprintf(name,10,"%llu",ino);
         printf("create file:%s\n",name);
+        /*
         if(stp_creat(file,name,S_IRWXU|S_IRWXO|S_IRWXG) < 0) {
         //if(stp_unlink(file,"test1") < 0) {
             printf("creat file %s error:%s,errno:%d\n",name,stp_strerror(stp_errno),stp_errno);
         }
         else printf("create file %s successful\n",name);
-        
+        */
+        if(stp_mkdir(file,2,name,S_IRWXU|S_IRWXO|S_IRWXG) < 0) {
+            printf("mkdir %s error:%s,errno:%d\n",name,stp_strerror(stp_errno),stp_errno);
+        } else
+            printf("mkdir %s susscessful\n",name);
+
         ino ++;
     }
     
@@ -98,15 +104,20 @@ int main(int argc,char *argv[])
         fprintf(stderr,"stat file ino:%llu,error:%s\n",ino,stp_strerror(stp_errno));
     } else print_stat(&stbuf);
     
-    if(stp_unlink(file,"2") < 0) {
-        fprintf(stderr,"unlink file 2 error:%s\n",stp_strerror(stp_errno));
-    } else 
+    /*
+    if(stp_unlink(file,"1") < 0) {
+        fprintf(stderr,"unlink file 1 error:%s\n",stp_strerror(stp_errno));
+    } else
         printf("successful to unlink 2\n");
-
-    if(stp_readdir(file,1) < 0) {
+    */
+    if(stp_readdir(file,2,NULL,0) < 0) {
         fprintf(stderr,"readdir error:%s\n",stp_strerror(stp_errno));
     } else 
         printf("readdir successful\n");
+
+    if(stp_rmdir(file,3,"3",1) < 0) {
+        fprintf(stderr,"rmdir error:%s\n",stp_strerror(stp_errno));
+    }
     
     
     /*

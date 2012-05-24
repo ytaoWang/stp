@@ -28,6 +28,10 @@ static inline int __equal_location(const struct stp_header *l1,const struct stp_
 static int __copy_inode_entry(struct stp_inode *inode,const struct stp_header *location,struct stp_dir_item *item,struct stp_fs_entry *pentry,size_t *len);
 static int __copy_inode_indir(struct stp_inode *inode,const struct stp_header *location,struct stp_dir_item *item,struct stp_fs_entry *pentry,size_t *len);
 
+static int __remove_inode_dir_item(struct stp_inode *,struct stp_fs_entry *,const struct stp_dir_item *);
+static int __remove_inode_indir_item(struct stp_inode *,struct stp_fs_entry *,const struct stp_dir_item *);
+static int __binary_search(const struct stp_dir_item*,u32 ,const char *);
+
 static int do_fs_inode_setattr(struct stp_inode *inode)
 {
     return -1;
@@ -476,12 +480,13 @@ static int do_fs_inode_mkdir(struct stp_inode *parent,const char *filename,size_
 
 }
 
+//remove entry from  parent inode
 static int do_fs_inode_rm(struct stp_inode *parent,const char *filename,size_t len,u64 *ino)
 {
     struct stp_fs_info *sb = parent->fs;
     struct stp_fs_entry *entry,*pentry;
     int found,i;
-    
+
     if(_do_fs_inode_exist(parent,0,filename,len,&found,&entry) < 0)
         return -1;
     if(!found) 
@@ -494,9 +499,9 @@ static int do_fs_inode_rm(struct stp_inode *parent,const char *filename,size_t l
     struct stp_fs_dirent *ent = (struct stp_fs_dirent *)entry->entry;
     
     //delete the corresponding entry
-    for(i = 0; i < ent->location.nritems;++i) {
-        if(!strcmp(ent->item[i].name,filename)) 
-            break;
+    if((i = __binary_search(ent->item,ent->location.nritems,filename)) < 0) {
+        stp_errno = STP_FS_ENTRY_NOEXIST;
+        return -1;
     }
     
     assert(i != ent->location.nritems);
@@ -620,21 +625,23 @@ static int do_fs_inode_free(struct stp_inode *inode)
     if(!__ent_empty(location)) {
         if(__rm_inode_indir(inode,location,NULL) < 0)
             return -1;
+        //free the last entry
+        if(__rm_inode_entry(inode,location,NULL) < 0)
+            return -1;
     }
-    //free the last entry
-    if(__rm_inode_entry(inode,location,NULL) < 0)
-        return -1;
     
     //free in-indirect entry
     location = &inode->item->entry[2];
-    if(!__ent_empty(location)) {
-        if(!(entry = __do_read_entry(inode,location,STP_FS_ENTRY_INDIR2,NULL)))
-            return -1;
-    }
+    if(__ent_empty(location))
+        goto _last;
+    
     
     int i = 0;
     struct stp_fs_indir *ent;
     
+    if(!(entry = __do_read_entry(inode,location,\
+                                 STP_FS_ENTRY_INDIR2,NULL)))
+        return -1;
     ent = (struct stp_fs_indir *)entry->entry;
     while(i < location->nritems) {
         struct stp_header *l;
@@ -653,7 +660,8 @@ static int do_fs_inode_free(struct stp_inode *inode)
     //free the last entry
     if(__rm_inode_entry(inode,location,NULL) < 0)
         return -1;
-    
+
+ _last:
     return inode->ops->destroy(inode);
 }
 
@@ -715,9 +723,33 @@ static int do_fs_inode_readdir(struct stp_inode *inode,struct stp_dir_item *item
             return -1;
         num += len;
     }
-
     
     return -1;
+}
+
+static struct stp_dir_item*  do_fs_inode_find_entry(struct stp_inode *parent,const char *filename,size_t len)
+{
+    struct stp_fs_entry *entry;
+    int found,i;
+    
+    if(_do_fs_inode_exist(parent,0,filename,len,&found,&entry) < 0)
+        return NULL;
+    if(!found)
+        return NULL;
+    if(!(entry->flags & STP_FS_ENTRY_DIRECT)) {
+        stp_errno = STP_INVALID_ARGUMENT;
+        return NULL;
+    }
+    
+    struct stp_fs_dirent *ent = (struct stp_fs_dirent *)entry->entry;
+    
+    if((i = __binary_search(ent->item,ent->location.nritems,filename)) < 0) {
+        stp_errno = STP_FS_ENTRY_NOEXIST;
+        return NULL;
+    }
+    
+    
+    return &ent->item[i];
 }
 
 
@@ -926,7 +958,38 @@ static int __copy_inode_indir(struct stp_inode *inode,const struct stp_header *l
     return 0;
 }
 
+static int __remove_inode_dir_item(struct stp_inode *inode,struct stp_fs_entry *entry,const struct stp_dir_item *item)
+{
+    stp_errno = STP_NO_SYSCALL;
+    return -1;
+}
 
+static int __remove_inode_indir_item(struct stp_inode *inode,struct stp_fs_entry *entry,const struct stp_dir_item *item)
+{
+ 
+    stp_errno = STP_NO_SYSCALL;
+
+    return -1;
+}
+
+
+static int __binary_search(const struct stp_dir_item *v,u32 len,const char *item)
+{
+    int mid,left,right,flag;
+    
+    left = 0;
+    right = len - 1;
+    
+    while(left <= right) {
+        mid = (left+right)/2;
+        if((flag = strcmp(v[mid].name,item)) < 0)
+            left = mid + 1;
+        else if(flag == 0) return mid;
+        else right = mid - 1;
+    }
+    
+    return -1;
+}
 
 
 const struct stp_inode_operations inode_operations = {
@@ -940,4 +1003,5 @@ const struct stp_inode_operations inode_operations = {
     .free = do_fs_inode_free,
     .lookup = do_fs_inode_lookup,
     .unlink = do_fs_inode_unlink,
+    .find_entry = do_fs_inode_find_entry,
 };

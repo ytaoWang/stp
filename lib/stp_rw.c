@@ -52,7 +52,7 @@ int stp_stat(STP_FILE pfile,u64 ino,struct stat *buf)
     
 }
 
-int stp_readdir(STP_FILE file,u64 ino)
+int stp_readdir(STP_FILE file,u64 ino,dir_t *items,u32 len)
 {
     struct stp_fs_info *fs;
     struct stp_btree_info *tree;
@@ -100,7 +100,13 @@ int stp_readdir(STP_FILE file,u64 ino)
     }
     
     #endif
+    
+    if(!item || !len) return 0;
 
+    for(i = 0;i < inode->item->nritem && i < len;++i) {
+        memcpy(&items[i],&item[i],sizeof(*items));
+    }
+    
     return 0;
 }
 

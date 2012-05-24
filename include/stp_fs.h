@@ -107,6 +107,7 @@ struct stp_inode_operations {
     int (*sync)(struct stp_inode *);
     int (*free)(struct stp_inode *);
     int (*unlink)(struct stp_inode *);
+    struct stp_dir_item* (*find_entry)(struct stp_inode *parent,const char *filename,size_t len);
 };
 
 #define STP_FS_INODE_CREAT  (1<<0)

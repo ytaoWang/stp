@@ -540,7 +540,8 @@ static int do_fs_super_find(struct stp_fs_info *sb,struct stp_inode **inode,u64 
     
     if(node) {
         _inode = rb_entry(node,struct stp_inode,node);
-        *inode = _inode;
+        if(inode)
+            *inode = _inode;
         return 0;
     }
     

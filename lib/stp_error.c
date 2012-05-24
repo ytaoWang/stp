@@ -51,6 +51,7 @@ const char * const stp_errlist[STP_MAX_ERRNO + 1] = {
     N_("File Directory isn't empty"),/*STP_FS_DIR_NOEMPTY 43*/
     N_("File isn't directory"),/*STP_FS_NO_DIR 44 */
     N_("Root can't delete"),/*STP_FS_ROOT 45 */
+    N_("File entry isn't directory"),/*STP_FS_NODIR 46*/
     };
 
     
