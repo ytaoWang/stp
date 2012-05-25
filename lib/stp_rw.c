@@ -15,6 +15,7 @@
 #include "stp_fs.h"
 #include "stp_error.h"
 #include "stp.h"
+#include "stp_internal.h"
 
 static inline void __copy_stat(struct stat *dest,const struct stp_inode_item *item);
 
@@ -56,7 +57,6 @@ int stp_readdir(STP_FILE file,u64 ino,dir_t *items,u32 len)
 {
     struct stp_fs_info *fs;
     struct stp_btree_info *tree;
-    struct stp_bnode_off off;
     struct stp_inode *inode;
     int i;
     
@@ -72,7 +72,17 @@ int stp_readdir(STP_FILE file,u64 ino,dir_t *items,u32 len)
         stp_errno = STP_INDEX_CANT_BE_READER;
         return -1;
     }
-    
+
+    if(__fs_read_inode(fs,ino,tree,&inode) < 0)
+        return -1;
+
+    if(!(inode->item->mode & S_IFDIR)) {
+        stp_errno = STP_FS_NO_DIR;
+        return -1;
+    }
+
+    /*
+      
     memset(&off,0,sizeof(off));
     
     if(ino != 1) {
@@ -86,7 +96,8 @@ int stp_readdir(STP_FILE file,u64 ino,dir_t *items,u32 len)
     
     if(fs->ops->lookup(fs,&inode,off.ino,off.offset) < 0)
         return -1;
-    
+    */
+
     struct stp_dir_item item[inode->item->nritem];
     
     memset(item,0,sizeof(struct stp_dir_item) * inode->item->nritem);
@@ -95,8 +106,10 @@ int stp_readdir(STP_FILE file,u64 ino,dir_t *items,u32 len)
     
     #ifdef DEBUG
     
+    fprintf(stderr,"readdir in here %s\n",__FUNCTION__);
+    
     for(i = 0;i < inode->item->nritem;++i) {
-        printf("ino:%llu,name:%s\n",item[i].ino,item[i].name);
+        fprintf(stderr,"ino:%llu,name:%s\n",item[i].ino,item[i].name);
     }
     
     #endif

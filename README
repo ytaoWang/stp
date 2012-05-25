@@ -13,5 +13,6 @@ Installation
 
 ./configure
 make
-
+cd bin
+./stp
 For more details see the file 'INSTALL'

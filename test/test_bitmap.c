@@ -68,6 +68,11 @@ int main(int argc,char *argv[])
      * test b+ tree insert 
      **/
     ino = 1;
+    if(stp_mkdir(file,1,"2",S_IRWXU|S_IRWXO|S_IRWXG) < 0) {
+        fprintf(stderr,"mkdir error:%s\n",stp_strerror(stp_errno));
+    } else 
+        fprintf(stderr,"creat dir 2 successful\n");
+    
     while(ino <= num) 
     {
         //printf("create file ino:%llu\n",ino);
@@ -110,15 +115,45 @@ int main(int argc,char *argv[])
     } else
         printf("successful to unlink 2\n");
     */
+
     if(stp_readdir(file,2,NULL,0) < 0) {
         fprintf(stderr,"readdir error:%s\n",stp_strerror(stp_errno));
     } else 
-        printf("readdir successful\n");
+        printf("readdir 2 successful\n");
 
-    if(stp_rmdir(file,3,"3",1) < 0) {
+    if(stp_rmdir(file,2,"3",1) < 0) {
         fprintf(stderr,"rmdir error:%s\n",stp_strerror(stp_errno));
+    } else 
+        fprintf(stderr,"rmdir 3 successful.\n");
+    
+    if(stp_readdir(file,2,NULL,0) < 0) {
+        fprintf(stderr,"readdir 2 error:%s\n",stp_strerror(stp_errno));
+    } else 
+        printf("readdir 2 successful\n");
+    
+    if(stp_rmdir(file,1,"3",1) < 0) {
+        fprintf(stderr,"rmdir 3 error:%s\n",stp_strerror(stp_errno));
+    } else 
+        printf("rmdir 3 successful.\n");
+    
+    dirent_t *handle;
+    if(!(handle = stp_opendir(file,1))) {
+        fprintf(stderr,"open directory error:%s\n",stp_strerror(stp_errno));
     }
     
+    struct dirent *p;
+    
+    while((p = stp_readdir2(handle))) {
+        //fprintf(stderr,"read directory error:%s\n",stp_strerror(stp_errno));
+        printf("ino:%lu,off:%lu,name:%s\n",p->d_ino,p->d_off,p->d_name);
+    }
+    
+    stp_closedir(handle);
+    
+    if(stp_readdir(file,1,NULL,0) < 0) {
+        fprintf(stderr,"readdir 1 error:%s\n",stp_strerror(stp_errno));
+    } else 
+        fprintf(stderr,"readdir 1 successful.\n");
     
     /*
      * test destroy
