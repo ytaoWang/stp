@@ -419,6 +419,11 @@ int stp_rmdir(STP_FILE file,u64 pino,const char *filename,size_t len)
         return -1;
     }
 
+    if(inode->item->nritem != 0) {
+        stp_errno = STP_FS_DIR_NOEMPTY;
+        return -1;
+    }
+    
     if(__fs_info_unlink(fs,pinode,filename,&off,&flag) < 0)
         return -1;
     

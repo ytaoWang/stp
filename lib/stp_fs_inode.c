@@ -280,7 +280,10 @@ static int __do_fs_entry_insert(struct stp_inode *parent,const struct stp_dir_it
     qsort(ent->item,ent->location.nritems,sizeof(*item),dir_item_cmp);
     __set_entry_dirty(sb,entry);
     
+    #ifdef DEBUG
     __debug_entry(ent);
+    #endif
+
     return 0;
 }
 
@@ -354,7 +357,10 @@ static int __do_fs_indir_insert(struct stp_inode *parent,const struct stp_dir_it
     }
     
     __set_entry_dirty(sb,entry);
+
+    #ifdef DEBUG
     __debug_indir(parent,ent);
+    #endif
     
     return flags;
 }
@@ -662,7 +668,8 @@ static int do_fs_inode_free(struct stp_inode *inode)
         return -1;
 
  _last:
-    return inode->ops->destroy(inode);
+    //return inode->ops->destroy(inode);
+    return 0;
 }
 
 static int do_fs_inode_unlink(struct stp_inode *inode)

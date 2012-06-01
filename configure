@@ -2781,7 +2781,7 @@ am__tar='${AMTAR} chof - "$$tardir"'; am__untar='${AMTAR} xf -'
 
 
 # Checks for programs.
-:${CFLAGS="-g -O0 -Werror -DDEBUG"}
+:${CFLAGS="-g -O0 -Werror"}
 ac_ext=c
 ac_cpp='$CPP $CPPFLAGS'
 ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
