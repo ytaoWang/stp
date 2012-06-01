@@ -87,8 +87,15 @@ int main(int argc,char *argv[])
         */
         if(stp_mkdir(file,2,name,S_IRWXU|S_IRWXO|S_IRWXG) < 0) {
             printf("mkdir %s error:%s,errno:%d\n",name,stp_strerror(stp_errno),stp_errno);
+            if(stp_errno == STP_FS_ENTRY_FULL)
+            {
+                printf("directory entry is full,i:%llu\n",ino);
+                getchar();
+                break;
+            }
+            
         } else
-            printf("mkdir %s susscessful\n",name);
+            printf("mkdir %s in 2 susscessful\n",name);
 
         ino ++;
     }
@@ -117,31 +124,42 @@ int main(int argc,char *argv[])
     */
 
     if(stp_readdir(file,2,NULL,0) < 0) {
-        fprintf(stderr,"readdir error:%s\n",stp_strerror(stp_errno));
+        fprintf(stderr,"readdir 2 error:%s\n",stp_strerror(stp_errno));
     } else 
         printf("readdir 2 successful\n");
 
     if(stp_rmdir(file,2,"3",1) < 0) {
-        fprintf(stderr,"rmdir error:%s\n",stp_strerror(stp_errno));
+        fprintf(stderr,"rmdir 3 in 2 error:%s\n",stp_strerror(stp_errno));
     } else 
-        fprintf(stderr,"rmdir 3 successful.\n");
+        fprintf(stderr,"rmdir 3 in 2 successful.\n");
     
     if(stp_readdir(file,2,NULL,0) < 0) {
         fprintf(stderr,"readdir 2 error:%s\n",stp_strerror(stp_errno));
     } else 
         printf("readdir 2 successful\n");
     
+    //getchar();
+    
     if(stp_rmdir(file,1,"3",1) < 0) {
-        fprintf(stderr,"rmdir 3 error:%s\n",stp_strerror(stp_errno));
+        fprintf(stderr,"rmdir 3 in 1 error:%s\n",stp_strerror(stp_errno));
     } else 
-        printf("rmdir 3 successful.\n");
+        printf("rmdir 3 in 1successful.\n");
+    
+    if(stp_rmdir(file,1,"2",1) < 0) {
+        fprintf(stderr,"rmdir 2 in 1 error:%s\n",stp_strerror(stp_errno));
+    } else 
+        printf("rmdir 2 in 1 successful.\n");
     
     dirent_t *handle;
-    if(!(handle = stp_opendir(file,1))) {
-        fprintf(stderr,"open directory error:%s\n",stp_strerror(stp_errno));
+
+    ino = 1;
+    if(!(handle = stp_opendir(file,ino))) {
+        fprintf(stderr,"open directory 1 error:%s\n",stp_strerror(stp_errno));
     }
     
     struct dirent *p;
+    
+    printf("readdir ino:%llu\n",ino);
     
     while((p = stp_readdir2(handle))) {
         //fprintf(stderr,"read directory error:%s\n",stp_strerror(stp_errno));
@@ -149,12 +167,31 @@ int main(int argc,char *argv[])
     }
     
     stp_closedir(handle);
+
+    //getchar();
     
-    if(stp_readdir(file,1,NULL,0) < 0) {
-        fprintf(stderr,"readdir 1 error:%s\n",stp_strerror(stp_errno));
+    ino = 2;
+    /*
+    if(!(handle = stp_opendir(file,ino))) {
+        fprintf(stderr,"open directory 1 error:%s\n",stp_strerror(stp_errno));
+    }
+    
+    printf("readdir ino:%llu\n",ino);
+    
+    while((p = stp_readdir2(handle))) {
+        //fprintf(stderr,"read directory error:%s\n",stp_strerror(stp_errno));
+        printf("ino:%lu,off:%lu,name:%s\n",p->d_ino,p->d_off,p->d_name);
+    }
+    
+    stp_closedir(handle);
+    */
+    /*
+    if(stp_readdir(file,ino,NULL,0) < 0) {
+        fprintf(stderr,"readdir %llu error:%s\n",ino,stp_strerror(stp_errno));
     } else 
-        fprintf(stderr,"readdir 1 successful.\n");
-    
+        fprintf(stderr,"readdir %llu successful.\n",ino);
+    */
+
     /*
      * test destroy
      */

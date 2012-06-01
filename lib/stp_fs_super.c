@@ -103,10 +103,12 @@ static int do_fs_super_init(struct stp_fs_info * super)
     
     super->offset = lseek(super->fd,0,SEEK_END);
     
+    #ifdef FS_DEBUG
     printf("magic:%x,stp_inode size:%u,stp_inode_item size:%u,dir_item:%u,fs_entry:%u,dirent:%u,indirent:%u\n",\
            super->super->magic,sizeof(struct stp_inode),sizeof(struct stp_inode_item),sizeof(struct stp_dir_item),sizeof(struct stp_fs_entry),\
            sizeof(struct stp_fs_dirent),sizeof(struct stp_fs_indir));
-    
+    #endif
+
     return 0;
  fail:
     {
@@ -189,8 +191,11 @@ static struct stp_inode * do_fs_super_allocate(struct stp_fs_info * super,off_t 
     inode->item->location.flags = 0;
     inode->item->location.nritems = 0;
 
+    #ifdef FS_DEBUG
     printf("%s:%d,inode:%p,flag:%d\n",__FUNCTION__,__LINE__,inode,\
            inode->flags);
+    #endif
+
     inode->ops->init(inode);
     }
 

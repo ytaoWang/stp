@@ -58,7 +58,7 @@ struct stp_inode_item {
     u32 nritem;//file-item number dir_item 
     union //dir entry or extend attribution 
     {
-        //direct(8KB 32 entries),indirect(8KB-8KB)
+        //direct(8KB 31 entries),indirect(8KB-8KB),2-indirect
         struct stp_header entry[3]; //for dir record
         struct extend_attribution {
             char ip[32];

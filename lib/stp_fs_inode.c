@@ -280,7 +280,7 @@ static int __do_fs_entry_insert(struct stp_inode *parent,const struct stp_dir_it
     qsort(ent->item,ent->location.nritems,sizeof(*item),dir_item_cmp);
     __set_entry_dirty(sb,entry);
     
-    #ifdef DEBUG
+    #ifdef FS_DEBUG
     __debug_entry(ent);
     #endif
 
@@ -358,7 +358,7 @@ static int __do_fs_indir_insert(struct stp_inode *parent,const struct stp_dir_it
     
     __set_entry_dirty(sb,entry);
 
-    #ifdef DEBUG
+    #ifdef FS_DEBUG
     __debug_indir(parent,ent);
     #endif
     
@@ -370,8 +370,17 @@ static int __do_fs_inode_insert(struct stp_inode *parent,const struct stp_dir_it
     struct stp_fs_info  *sb = parent->fs;
     struct stp_fs_entry *entry;
     struct stp_header *location;
+    s64 max;
+    
+    max = parent->item->nritem;
+
+    if(max == U32_MAX) {
+        stp_errno = STP_FS_ENTRY_FULL;
+        return -1;
+    }
     
     //insert in the direct dir
+    max -= STP_FS_DIR_NUM;
     location = &parent->item->entry[0];
     if(__ent_empty(location)) {
         //allocate entry
@@ -397,9 +406,11 @@ static int __do_fs_inode_insert(struct stp_inode *parent,const struct stp_dir_it
         }
     }
     
+    #ifdef FS_DEBUG
     printf("%s:%d,nritems:%d\n",__FUNCTION__,__LINE__,location->nritems);
-    
-    if(location->nritems < STP_FS_DIR_NUM) {
+    #endif
+
+    if(max < 0 && location->nritems < STP_FS_DIR_NUM) {
         __set_entry_dirty(sb,entry);
         return __do_fs_entry_insert(parent,item,location,NULL);
     }
@@ -415,7 +426,10 @@ static int __do_fs_inode_insert(struct stp_inode *parent,const struct stp_dir_it
         __set_inode_dirty(sb,parent);
         entry->flags |= STP_FS_ENTRY_INDIR1;
     }
-    if(location->nritems <= STP_FS_DIRENT_MAX) {
+    
+    max -= STP_FS_DIR_NUM * STP_FS_DIRENT_MAX;
+    
+    if(max < 0 && location->nritems <= STP_FS_DIRENT_MAX) {
         __set_entry_dirty(sb,entry);
         return __do_fs_indir_insert(parent,item,location,NULL);
     }
@@ -532,11 +546,12 @@ static int do_fs_inode_rm(struct stp_inode *parent,const char *filename,size_t l
     pentry = entry->parent;
     
     if(!pentry) return 0;
-    
+    /*
     if(!__equal_location(&parent->item->entry[0],(struct stp_header *)pentry->entry)) {
         stp_errno = STP_FS_UNKNOWN_ERROR;
         return -1;
     }
+    */
     
     struct stp_fs_indir* fi = (struct stp_fs_indir *)pentry->entry;
     fi->location.nritems --;
@@ -731,7 +746,7 @@ static int do_fs_inode_readdir(struct stp_inode *inode,struct stp_dir_item *item
         num += len;
     }
     
-    return -1;
+    return 0;
 }
 
 static struct stp_dir_item*  do_fs_inode_find_entry(struct stp_inode *parent,const char *filename,size_t len)

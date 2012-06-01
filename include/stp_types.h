@@ -17,6 +17,8 @@ typedef unsigned long ptr_t;
 
 #define BITS_PER_U32 (sizeof(u32)*8)
 
+#define U32_MAX  ((u32)-1)
+
 #define BITMAP_LAST_WORD_MASK(nbits)            \
   (                                             \
    ((nbits % BITS_PER_U32)) ?                  \

@@ -4,6 +4,7 @@
 #include <dirent.h>
 
 #include "stp_fs.h"
+#include "stp_error.h"
 
 #ifdef __cplusplus
 extern "C" {

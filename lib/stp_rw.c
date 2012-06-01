@@ -67,6 +67,7 @@ int stp_readdir(STP_FILE file,u64 ino,dir_t *items,u32 len)
     
     fs = file->fs;
     tree = file->tree;
+    inode = NULL;
     
     if((!(tree->mode & STP_FS_RDWR)) && (!(tree->mode & STP_FS_READ))) {
         stp_errno = STP_INDEX_CANT_BE_READER;
@@ -98,11 +99,18 @@ int stp_readdir(STP_FILE file,u64 ino,dir_t *items,u32 len)
         return -1;
     */
 
-    struct stp_dir_item item[inode->item->nritem];
+    struct stp_dir_item *item;
     
-    memset(item,0,sizeof(struct stp_dir_item) * inode->item->nritem);
-    if(inode->ops->readdir(inode,item) < 0) 
+    if(!(item = calloc(inode->item->nritem,sizeof(struct stp_dir_item)))) {
+        stp_errno = STP_INODE_MALLOC_ERROR;
         return -1;
+    }    
+
+    if(inode->ops->readdir(inode,item) < 0) 
+    {
+        free(item);
+        return -1;
+    }
     
     #ifdef DEBUG
     
@@ -114,12 +122,16 @@ int stp_readdir(STP_FILE file,u64 ino,dir_t *items,u32 len)
     
     #endif
     
-    if(!item || !len) return 0;
-
+    if(!item || !len) {
+        free(item);
+        return 0;
+    }
+    
     for(i = 0;i < inode->item->nritem && i < len;++i) {
         memcpy(&items[i],&item[i],sizeof(*items));
     }
     
+    free(item);
     return 0;
 }
 

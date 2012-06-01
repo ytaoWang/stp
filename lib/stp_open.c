@@ -187,10 +187,13 @@ static int read_btree_info(int bfd,struct stp_btree_info ** _btree,unsigned int 
         memset(addr,0,BTREE_SUPER_SIZE);
 
     btree->super = (struct stp_btree_super *)addr;
+
+    #ifdef DEBUG
     if(!(mode & STP_FS_CREAT))
-    	printf("%s:btree->super:%p,addr:%p,flags:%d\n",__FUNCTION__,btree->super,addr,btree->super->root.flags);
+    	printf("OPEN:%s:btree->super:%p,addr:%p,flags:%d\n",__FUNCTION__,btree->super,addr,btree->super->root.flags);
     else
-      	printf("%s:btree->super:%p,addr:%p,root:%p,flags:%p\n",__FUNCTION__,btree->super,addr,&btree->super->root,&btree->super->root.flags);
+      	printf("CREAT:%s:btree->super:%p,addr:%p,root:%p,flags:%p\n",__FUNCTION__,btree->super,addr,&btree->super->root,&btree->super->root.flags);
+    #endif
 
     btree->mode = mode;
     btree->fd = bfd;
@@ -213,7 +216,9 @@ int stp_close(STP_FILE pfile)
     struct stp_fs_info * fs = pfile->fs;
     struct stp_btree_info *btree = pfile->tree;
     
+    #ifdef DEBUG
     printf("%s:%d b+ tree:\n",__FUNCTION__,__LINE__);
+    #endif
     //btree->ops->debug_btree(btree);
     
 
@@ -224,7 +229,11 @@ int stp_close(STP_FILE pfile)
     free(fs);
     //btree->ops->debug_btree(btree);
     btree->ops->destroy(btree);
+
+    #ifdef DEBUG
     printf("__function__:%s,flags:%d,nrkeys:%d\n",__FUNCTION__,btree->super->root.flags,btree->super->nritems);
+    #endif
+
     fsync(btree->fd);
     msync(btree->super,BTREE_SUPER_SIZE,MS_SYNC);
     munmap(btree->super,BTREE_SUPER_SIZE);
@@ -479,10 +488,18 @@ dirent_t * stp_opendir(STP_FILE file,u64 ino)
             return NULL;
         }
         
-        struct stp_dir_item item[inode->item->nritem];
+        struct stp_dir_item *item;
         
-        if(inode->ops->readdir(inode,item) < 0)
+        if(!(item = calloc(inode->item->nritem,sizeof(struct stp_dir_item)))) {
+            stp_errno = STP_INODE_MALLOC_ERROR;
             return NULL;
+        }
+
+        if(inode->ops->readdir(inode,item) < 0) {
+            free(item);
+            return NULL;
+        }
+        
         //for loop copy
         for(i = 0;i < inode->item->nritem;i++) {
             entry[i].d_ino = item[i].ino;
@@ -492,6 +509,7 @@ dirent_t * stp_opendir(STP_FILE file,u64 ino)
             entry[i].d_type = 0;
         }
         
+        free(item);
     }
     
     pdir->dir = entry;

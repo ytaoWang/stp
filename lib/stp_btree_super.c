@@ -99,7 +99,9 @@ static int __btree_init_root2(struct stp_btree_info *sb,const struct stp_bnode_i
     if(creat)
       bnode->item->flags |= BTREE_ITEM_LEAF;
     list_move(&sb->node_list,&bnode->list);
+    #ifdef BTREE_DEBUG
     printf("%s:%d,flags:%d\n",__FUNCTION__,__LINE__,item->flags);
+    #endif 
     return 0;
 }
 
@@ -114,8 +116,10 @@ static int do_btree_super_init(struct stp_btree_info * super)
     list_init(&super->dirty_list);
     
     //if(!(super->mode & STP_FS_CREAT)) {
-      	printf("function:%s,line:%d,super:%p,super->super:%p,flags:%p\n",__FUNCTION__,__LINE__,super,super->super,&super->super->root);
-        //}
+    #ifdef BTREE_DEBUG
+    printf("function:%s,line:%d,super:%p,super->super:%p,flags:%p\n",__FUNCTION__,__LINE__,super,super->super,&super->super->root);
+    #endif
+    //}
     
     if(super->mode & STP_FS_CREAT) {
         super->super->magic = STP_FS_MAGIC;
@@ -142,7 +146,9 @@ static int do_btree_super_init(struct stp_btree_info * super)
         super->super->root.count = sizeof(struct stp_bnode_item);
         super->super->root.flags = 0;
         super->super->root.nritems = 0;
+        #ifdef BTREE_DEBUG
         printf("FS_FS_CREAT\n");
+        #endif
     }
     
     //printf("stp_bnode flags:%d\n",super->super->root.flags);
@@ -250,9 +256,11 @@ static struct stp_bnode *do_btree_super_allocate(struct stp_btree_info *super,of
     //lru replcement policy in here
     pthread_mutex_unlock(&super->mutex);
 
+    #ifdef BTREE_DEBUG
     printf("%s:%d,active:%u,offset:%llu,count:%llu,SUPER:%u,node:%p\n",__FUNCTION__,__LINE__,super->active,\
            bnode->item->location.offset,bnode->item->location.count,BTREE_SUPER_SIZE,bnode);
-    
+    #endif
+
     return bnode;
 }
     
@@ -272,7 +280,11 @@ static int do_btree_super_read(struct stp_btree_info *sb,struct stp_bnode * bnod
             fprintf(stderr,"read index node from file error:%s\n",strerror(errno));
             return -1;
         }
+
+        #ifdef BTREE_DEBUG
         printf("%s:%d,%lu in mmap\n",__FUNCTION__,__LINE__,offset);
+        #endif
+
     } else {
         if(MAP_FAILED == (bnode->item = mmap(NULL,sizeof(struct stp_bnode_item), \
                                 PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0))) {
@@ -285,8 +297,10 @@ static int do_btree_super_read(struct stp_btree_info *sb,struct stp_bnode * bnod
             munmap(bnode->item,sizeof(struct stp_bnode_item));
             return -1;
         }
-        
+        #ifdef BTREE_DEBUG
         printf("%s:%d,%lu,in pread\n",__FUNCTION__,__LINE__,offset);
+        #endif
+
         bnode->flags = STP_INDEX_BNODE_CREAT;
     }
     
@@ -309,8 +323,10 @@ static int do_btree_super_write(struct stp_btree_info * sb,struct stp_bnode * bn
     }
     
     assert(bnode->item != NULL);
+    #ifdef BTREE_DEBUG
     printf("%s:%d,count:%llu,offset:%llu,ino:%llu,node:%p\n",__FUNCTION__,__LINE__,bnode->item->location.count, \
            bnode->item->location.offset,bnode->item->key[0].ino,bnode);
+    #endif
     assert(bnode->item->location.count > 0);
     assert(bnode->item->location.offset > 0);
     
@@ -633,8 +649,11 @@ static int __do_btree_split_child(struct stp_btree_info *sb,struct stp_bnode *pa
         left = BTREE_INTERNAL_LEFT + 1;
         right = BTREE_INTERNAL_RIGHT - 1;
     }
-    
+
+    #ifdef BTREE_DEBUG
     printf("%s:%d,split_child:[0]:%llu-%llu\n",__FUNCTION__,__LINE__,child->item->key[0].ino,child->item->key[child->item->nrkeys-1].ino);
+    #endif
+
     //record the intermediate key for parent
     __copy_bnode_key(&key,&child->item->key[BTREE_LEFT]);
     
@@ -898,9 +917,11 @@ static int __remove_entry_from_node(struct stp_btree_info *sb,struct stp_bnode *
 {
     int i;
     
+    #ifdef BTREE_DEBUG
     printf("%s(%d) ino:%llu,nrkeys:%d,node:%p,idx:%d,nrkeys:%d\n",__FUNCTION__,__LINE__,
            node->item->key[0].ino,node->item->nrkeys,node,idx,node->item->nrkeys);
-    
+    #endif
+
     //move forward one position for child key
     //problem in here
     for(i = idx + 1;i < node->item->nrkeys;i++) 
@@ -948,8 +969,9 @@ static int colaescence_nodes(struct stp_btree_info *sb,struct stp_bnode *node,st
     /*
      * Swap neighbor with node if node is on the extreme left and neighbor is to its right
      */
-    
+    #ifdef BTREE_DEBUG
     printf("function:%s,file:%s,node:%p,neighbor:%p,parent:%p\n",__FUNCTION__,__FILE__,node,neighbor,hist[size]);
+    #endif
 
     if(neighbor_index == -1) {
         tmp = node;
@@ -1101,13 +1123,15 @@ static int colaescence_nodes(struct stp_btree_info *sb,struct stp_bnode *node,st
 
 static void __btree_node_destroy(struct stp_bnode *node)
 {
-    struct stp_btree_info *sb;
+    struct stp_btree_info *sb = NULL;
     u32 off;
     
     sb = node->tree;
-    
+
+    #ifdef BTREE_DEBUG
     printf("%s(%d):ino[0]:%llu,node:%p,nrkeys:%d\n",__func__,__LINE__,node->item->key[0].ino,node,node->item->nrkeys);
-    
+    #endif
+
     assert(node->item->nrkeys == 0);
     off = (node->item->location.offset - BTREE_SUPER_SIZE)/sizeof(struct stp_bnode_item);
     
@@ -1141,7 +1165,10 @@ static int redistribute_nodes(struct stp_btree_info *sb,struct stp_bnode *node,s
 {
     int i;
     
+    #ifdef BTREE_DEBUG
     printf("%s:%d neighbor:%p,neighbor_index:%d,k_prime_index:%d,k_prime:%llu\n",__func__,__LINE__,neighbor,neighbor_index,k_prime_index,k_prime->ino);
+    #endif
+
     //borrow from sibling
     if(neighbor_index != -1) {
         
@@ -1307,8 +1334,10 @@ static int __btree_delete_entry(struct stp_btree_info *sb,struct stp_bnode **his
     int k_prime_index;
     struct stp_bnode_key k_prime;
     struct stp_bnode *node = hist[--size];
-
+    
+	#ifdef BTREE_DEBUG
     printf("%s:ino:%llu,index:%d,node:%p\n",__func__,node->item->key[index].ino,index,node);
+    #endif
 
     //Remove key and pointer from node
     if(__remove_entry_from_node(sb,node,index) < 0)
@@ -1345,7 +1374,10 @@ static int __btree_delete_entry(struct stp_btree_info *sb,struct stp_bnode **his
      * between the pointer to node n and the pointer
      * to the neighbor
      */
+    #ifdef BTREE_DEBUG
     printf("%s,node:%p,parent:%p\n",__FUNCTION__,node,hist[size-1]);
+    #endif
+
     --size;
     if(get_neighbor_index(hist[size],node,&idx) < 0) return -1;
     
@@ -1415,16 +1447,21 @@ static int do_btree_super_destroy(struct stp_btree_info *sb)
 {
     struct stp_bnode *bnode,*next;
     
+    #ifdef BTREE_DEBUG
     printf("%s:%d,before entry_del,root:%p,active:%d,keys:%llu,items:%u,overflap:%llu\n",\
            __func__,__LINE__,sb->root,sb->active,sb->super->nrkeys,sb->super->nritems,overflap);
-    
+    #endif
+
     /*destroy bnode and flush it into disk*/
     list_for_each_entry_del(bnode,next,&sb->dirty_list,dirty) {
         sb->ops->write(sb,bnode);
         list_del_element(&bnode->dirty);
     }
     
+    #ifdef BTREE_DEBUG
     printf("%s:%d,flags:%d,error:%s\n",__FUNCTION__,__LINE__,sb->super->root.flags,strerror(errno));
+    #endif 
+
     /*free all bnode in **/
     list_for_each_entry_del(bnode,next,&sb->node_list,list) {
         list_del_element(&bnode->list);
@@ -1445,9 +1482,11 @@ static int do_btree_super_destroy(struct stp_btree_info *sb)
     umem_cache_destroy(btree_bnode_item_slab);
     sem_destroy(&sb->sem);
     pthread_mutex_destroy(&sb->mutex);
-
+    
+	#ifdef BTREE_DEBUG
     printf("%s:%d,root:%p,active:%d,keys:%llu,items:%u,overflap:%llu,deletion:%llu,deletion_overflap:%llu\n",\
            __func__,__LINE__,sb->root,sb->active,sb->super->nrkeys,sb->super->nritems,overflap,deletion,deletion_overflap);
+    #endif
 
     return 0;
 }
