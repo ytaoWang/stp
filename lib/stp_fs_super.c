@@ -25,7 +25,8 @@ static struct stp_inode * __get_stp_inode(struct stp_fs_info *sb);
 
 #define PAGE_SHIFT (12)
 #define PAGE_MASK (~((1UL << PAGE_SHIFT) - 1))
-#define PAGE_ALIGN(x) (!(x & ~PAGE_MASK))
+#define PAGE_ALIGN(x) (((x) + PAGE_MASK) & ~PAGE_MASK)
+#define PAGE_IS_ALIGN(x) ((PAGE_ALIGN(x) == x))
 
 #define STP_FS_ENTRY_MMAP (1UL << 0)
 
@@ -237,7 +238,7 @@ static int do_fs_super_alloc_pages(struct stp_fs_info *sb,struct stp_inode *inod
     pthread_mutex_unlock(&sb->mutex);
 
     /*
-    if(PAGE_ALIGN(entry->offset)) {
+    if(PAGE_IS_ALIGN(entry->offset)) {
         if((entry->entry = mmap(NULL,entry->size,PROT_READ|PROT_WRITE,MAP_SHARED,sb->fd,entry->offset)) == MAP_FAILED) 
             goto __fail;
         
@@ -281,7 +282,7 @@ static int do_fs_super_read_pages(struct stp_fs_info *sb,struct stp_fs_entry *en
 {
     assert(entry->offset && entry->size);
     
-    if(PAGE_ALIGN(entry->offset))
+    if(PAGE_IS_ALIGN(entry->offset))
     {
         if((entry->entry = mmap(NULL,entry->size,PROT_READ|PROT_WRITE,MAP_SHARED,sb->fd,entry->offset)) == MAP_FAILED) {
             stp_errno = STP_MALLOC_ERROR;
@@ -368,7 +369,7 @@ static int do_fs_super_sync_pages(struct stp_fs_info *sb,struct stp_fs_entry *en
     if(!(entry->flags & STP_FS_ENTRY_DIRTY))
         return 0;
     /*
-    if(PAGE_ALIGN(entry->offset)) 
+    if(PAGE_IS_ALIGN(entry->offset)) 
     {
         if(msync(entry->entry,entry->size,MS_ASYNC) < 0) {
             stp_errno = STP_META_WRITE_ERROR;
