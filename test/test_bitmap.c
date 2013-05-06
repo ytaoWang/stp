@@ -22,9 +22,9 @@ int main_testbitmap(int argc,char *argv[])
     off = 0;
     //while(i < BITS_PER_U32) 
     {
-        b[0] |= ~0UL;
-        b[1] |= ~0UL;
-        b[2] |= ~0UL;
+        b[0] |= ~0;
+        b[1] |= ~0;
+        b[2] |= ~0;
         b[2] &= 0xfffffff0;
     
         off = bitmap_find_first_zero_bit(b,11,BITS_PER_U32 * 2 - 10);
