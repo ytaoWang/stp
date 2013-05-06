@@ -13,6 +13,12 @@
 
 #include "stp_types.h"
 
+#ifdef BITS_PER_LONG
+#undef BITS_PER_LONG
+#endif
+
+#define BITS_PER_LONG 32
+
 #define LOCK_PREFIX_64 \
   ".section .smp_locks,\"a\"\n"                \
   ".align 8\n"                                \
@@ -54,13 +60,20 @@ static inline void __set_bit(int nr,volatile void *addr)
                       :ADDR
                       :"dIr" (nr):"memory");
 
+}
 
 static inline void clear_bit(int nr,volatile void *addr)
 {
   __asm__ volatile( LOCK_PREFIX 
-                      "btrl 1%,0%"
+                      "btrl %1,%0"
                       :ADDR
-                      :"dIr" (nr));
+                      :"dIr" (nr):"memory");
+  /*
+  __asm__ volatile( LOCK_PREFIX 
+                    "btrl 1%,0%"
+                    :ADDR
+                    :"dIr" (nr):"memory");
+  */
 }
 
 static inline int change_bit(int nr,volatile void *addr)
@@ -78,29 +91,29 @@ static inline int change_bit(int nr,volatile void *addr)
 
 static inline u32 __scanbit(u32 val,u32 max)
 {
-  asm("bsfq %1,%0 ; cmovz %2,%0" :"=&r" (val) :"r"(val),"r"(max));
+  asm("bsf %1,%0 ; cmovz %2,%0" :"=&r" (val) :"r"(val),"r"(max));
   return val;
 }
 
 #define find_first_bit(addr,size)                           \
   ((__builtin_constant_p(size) && (size) <= BITS_PER_LONG?  \
     (__scan_bit(*(unsigned long *)addr,(size))):            \
-	find_first_bit(addr,size)))
+	BITS_PER_LONG))
 
 #define find_next_bit(addr,size,off)                        \
   ((__builtin_constant_p(size) && (size) <= BITS_PER_LONG?  \
-    ((off) + (__scan_bit((*(unsigned long *)addr) >> (off),(size)-(off)))): \
-    find_next_bit(addr,size,off)))
+    ((off) + (__scanbit((*addr) >> (off),(size)-(off)))): \
+    BITS_PER_LONG))
 
 #define find_first_zero_bit(addr,size)                                \
   ((__builtin_constant_p(size) && (size) <= BITS_PER_LONG?            \
-    (__scan_bit(~*(unsigned long)addr,(size))):                       \
-    find_first_zero_bit(addr,size)))
+    (__scanbit(~*addr,(size))):                       \
+    BITS_PER_LONG))
 
 #define find_next_zero_bit(addr,size,off)                               \
   ((__builtin_constant_p(size) && (size) <= BITS_PER_LONG?              \
-    ((off) + (__scan_bit((~*(unsigned long *)addr) >> (off),(size)-(off)))):\
-    find_next_zero_bit(addr,size,off)))
+    ((off) + (__scanbit((~*(unsigned long *)addr) >> (off),(size)-(off)))):\
+    BITS_PER_LONG))
 
 static inline void set_bit_string(u32 *bitmap,unsigned long i,int len)
 {
@@ -124,7 +137,7 @@ static inline void __clear_bit_string(u32 *bitmap,unsigned long i,int len)
 }
 
 //same as __scanbit ,but in different word size
-static inline int ffs(int x)
+static inline int __ffs(int x)
 {
   int r;
   
@@ -137,7 +150,7 @@ static inline int ffs(int x)
 }
 
 //find 1 from low bit
-static inline int fls(int x)
+static inline int __fls(int x)
 {
   int r;
   
