@@ -1109,6 +1109,7 @@ static int colaescence_nodes(struct stp_btree_info *sb,struct stp_bnode *node,st
             hist[size]->ptrs[i] = hist[size]->ptrs[i-1];
         }
         */
+        node->tree = sb;
         __btree_node_destroy(node);
     } else {
         for(i = 0;i< hist[size]->item->nrkeys;i++)
@@ -1127,7 +1128,8 @@ static void __btree_node_destroy(struct stp_bnode *node)
     u32 off;
     
     sb = node->tree;
-
+    assert(sb != NULL);
+    
     #ifdef BTREE_DEBUG
     printf("%s(%d):ino[0]:%llu,node:%p,nrkeys:%d\n",__func__,__LINE__,node->item->key[0].ino,node,node->item->nrkeys);
     #endif
