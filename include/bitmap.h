@@ -89,7 +89,11 @@ static inline void bitmap_clear(u32 *bitmap,unsigned long off)
     k = off / BITS_PER_U32;
     off = off % BITS_PER_U32;
     
-    clear_bit((BITS_PER_U32 - k),&bitmap[off]);
+#ifdef DEBUG
+    fprintf(stderr,"index:%u,off:%u\n",k,off);
+#endif
+    clear_bit((BITS_PER_U32 - off),&bitmap[k]);
+    //clear_bit((BITS_PER_U32 - k),&bitmap[off]);
 }
     
 
