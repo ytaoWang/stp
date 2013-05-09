@@ -65,9 +65,9 @@ static inline void __set_bit(int nr,volatile void *addr)
 static inline void clear_bit(int nr,volatile void *addr)
 {
   __asm__ volatile( LOCK_PREFIX 
-                      "btrl %1,%0"
+                      "btr %1,%0"
                       :ADDR
-                      :"dIr" (nr):"memory");
+                      :"Ir" (nr));
   /*
   __asm__ volatile( LOCK_PREFIX 
                     "btrl 1%,0%"

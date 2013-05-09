@@ -76,10 +76,15 @@ static inline void bitmap_set(u32 *bitmap,unsigned long off)
     k = off / BITS_PER_U32;
     off = off % BITS_PER_U32;
     
+#ifdef DEBUG
+    printf("before set bitmap[%d]:%lx,off:%ld\n",k,bitmap[k],off);
+#endif
+
     set_bit((BITS_PER_U32 - off -1 ),&bitmap[k]);
-    #ifdef DEBUG
-    printf("bitmap[%d]:%u,off:%ld\n",k,bitmap[k],off);
-    #endif
+
+#ifdef DEBUG
+    printf("after set bitmap[%d]:%lx,off:%ld\n",k,bitmap[k],off);
+#endif
 }
 
 static inline void bitmap_clear(u32 *bitmap,unsigned long off)    
@@ -90,9 +95,13 @@ static inline void bitmap_clear(u32 *bitmap,unsigned long off)
     off = off % BITS_PER_U32;
     
 #ifdef DEBUG
-    fprintf(stderr,"index:%u,off:%u\n",k,off);
+    fprintf(stderr,"before clear bitmap[%u]:%lx,off:%ld\n",k,bitmap[k],off);
 #endif
-    clear_bit((BITS_PER_U32 - off),&bitmap[k]);
+    clear_bit((BITS_PER_U32 - off - 1),&bitmap[k]);
+
+#ifdef DEBUG
+    fprintf(stderr,"after clear bitmap[%u]:%lx,off:%ld\n",k,bitmap[k],off);
+#endif
     //clear_bit((BITS_PER_U32 - k),&bitmap[off]);
 }
     

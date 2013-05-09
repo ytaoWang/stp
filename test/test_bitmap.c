@@ -13,25 +13,38 @@ int main_testbitmap(int argc,char *argv[])
 {
     u32 b[N];
     int i;
-    off_t off;
+    off_t off[BITS_PER_U32];
     
     bitmap_clean(b,BITS);
+    memset(off,0,sizeof(off));
     
+    b[0] |= ~0;
+    b[1] |= ~0;
+    b[2] |= ~0;
+    b[2] &= 0xfffffff0;
+
+    i = 0;
+    while(i < BITS_PER_U32) 
+    {
+        off[i] = bitmap_find_first_zero_bit(b,11,BITS_PER_U32 * 2 - 10);
+        if(!off[i]) {
+            fprintf(stderr,"has no enough space to allocate.\n");
+            break;
+        }
+        
+        #ifdef DEBUG
+        printf("set offset[%d]:%ld\n",i,off[i]);
+        #endif
+        bitmap_set(b,off[i]);
+        i++;
+    }
     
     i = 0;
-    off = 0;
-    //while(i < BITS_PER_U32) 
-    {
-        b[0] |= ~0;
-        b[1] |= ~0;
-        b[2] |= ~0;
-        b[2] &= 0xfffffff0;
-    
-        off = bitmap_find_first_zero_bit(b,11,BITS_PER_U32 * 2 - 10);
+    while(i < BITS_PER_U32) {
+        bitmap_clear(b,off[i]);
         #ifdef DEBUG
-        printf("offset:%ld\n",off);
+        printf("clear offset:%ld\n",off[i]);
         #endif
-        bitmap_set(b,off);
         i++;
     }
     
